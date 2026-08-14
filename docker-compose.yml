@@ -1,0 +1,100 @@
+name: venueflow
+
+services:
+  mongo:
+    image: mongo:8.0
+    restart: unless-stopped
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_ROOT_USERNAME:?Set MONGO_ROOT_USERNAME in .env}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_ROOT_PASSWORD:?Set MONGO_ROOT_PASSWORD in .env}
+      MONGO_INITDB_DATABASE: ${MONGO_DATABASE:-venueflow}
+    ports:
+      - "127.0.0.1:27017:27017"
+    volumes:
+      - mongo_data:/data/db
+    healthcheck:
+      test:
+        - CMD
+        - mongosh
+        - --quiet
+        - --username
+        - ${MONGO_ROOT_USERNAME:?Set MONGO_ROOT_USERNAME in .env}
+        - --password
+        - ${MONGO_ROOT_PASSWORD:?Set MONGO_ROOT_PASSWORD in .env}
+        - --authenticationDatabase
+        - admin
+        - --eval
+        - "quit(db.adminCommand('ping').ok ? 0 : 2)"
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+
+  api:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    init: true
+    environment:
+      NODE_ENV: ${API_NODE_ENV:-development}
+      PORT: "4000"
+      MONGO_URI: mongodb://${MONGO_ROOT_USERNAME:?Set MONGO_ROOT_USERNAME in .env}:${MONGO_ROOT_PASSWORD:?Set MONGO_ROOT_PASSWORD in .env}@mongo:27017/${MONGO_DATABASE:-venueflow}?authSource=admin
+      JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in .env}
+      JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-7d}
+      COOKIE_MAX_AGE_MS: ${COOKIE_MAX_AGE_MS:-604800000}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://127.0.0.1:5173,http://localhost:5173}
+      AUTO_SEED_OWNER: "true"
+      SEED_OWNER_NAME: ${SEED_OWNER_NAME:-VenueFlow Owner}
+      SEED_OWNER_EMAIL: ${SEED_OWNER_EMAIL:?Set SEED_OWNER_EMAIL in .env}
+      SEED_OWNER_PASSWORD: ${SEED_OWNER_PASSWORD:?Set SEED_OWNER_PASSWORD in .env}
+    ports:
+      - "127.0.0.1:4000:4000"
+    depends_on:
+      mongo:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - fetch('http://127.0.0.1:4000/api/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 15s
+
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+      target: ${FRONTEND_BUILD_TARGET:-production}
+    restart: unless-stopped
+    init: true
+    environment:
+      PORT: "5173"
+      FRONTEND_INTERNAL_PORT: "3000"
+      VENUEFLOW_API_URL: http://api:4000
+      PROXY_TIMEOUT_MS: "120000"
+      WRANGLER_WRITE_LOGS: "false"
+      WRANGLER_LOG_PATH: .wrangler/logs
+      MINIFLARE_REGISTRY_PATH: .wrangler/registry
+    ports:
+      - "127.0.0.1:5173:5173"
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - fetch('http://127.0.0.1:5173/overview').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 30s
+
+volumes:
+  mongo_data:
+    name: venueflow_mongo_data
