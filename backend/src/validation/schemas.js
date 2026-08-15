@@ -42,13 +42,18 @@ const canvas = z.object({
 
 const floorCreate = z.object({
   level: finiteNumber.int().min(-10).max(250).optional(),
-  name: trimmed(1, 100).optional(),
+  name: trimmed(3, 100),
+  spaceType: z.enum(["building-floor", "hall", "outdoor", "terrace", "basement", "mezzanine", "service", "other"]).default("building-floor"),
+  purpose: trimmed(1, 80),
+  confirmed: z.literal(true),
   canvas: canvas.optional(),
 });
 
 const floorUpdate = z.object({
   level: finiteNumber.int().min(-10).max(250).optional(),
   name: trimmed(1, 100).optional(),
+  spaceType: z.enum(["building-floor", "hall", "outdoor", "terrace", "basement", "mezzanine", "service", "other"]).optional(),
+  purpose: trimmed(1, 80).optional(),
   canvas: z.object({
     width: finiteNumber.int().min(320).max(10_000).optional(),
     height: finiteNumber.int().min(240).max(10_000).optional(),
@@ -100,6 +105,9 @@ const planElementFields = {
   color: z.string().trim().regex(/^#[\da-f]{3,8}$/i, "Use a hex color").default("#5f746b"),
   zIndex: finiteNumber.int().min(-10_000).max(10_000).default(0),
   locked: z.boolean().default(false),
+  viewAngle: finiteNumber.min(20).max(160).default(70),
+  viewRadius: finiteNumber.min(5).max(60).default(28),
+  viewEnabled: z.boolean().default(true),
 };
 
 const normalizePlanElement = (value) => {
@@ -134,6 +142,9 @@ const planElementUpdate = z.object({
   color: z.string().trim().regex(/^#[\da-f]{3,8}$/i, "Use a hex color").optional(),
   zIndex: finiteNumber.int().min(-10_000).max(10_000).optional(),
   locked: z.boolean().optional(),
+  viewAngle: finiteNumber.min(20).max(160).optional(),
+  viewRadius: finiteNumber.min(5).max(60).optional(),
+  viewEnabled: z.boolean().optional(),
 }).refine((value) => Object.keys(value).length > 0, "At least one field is required")
   .transform(normalizePlanElement);
 const planElementsBulk = z.object({

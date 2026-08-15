@@ -1,7 +1,8 @@
 # VenueFlow API
 
 Express 5 + MongoDB/Mongoose backend for VenueFlow. It provides owner login, persistent locations,
-floors, zones, draggable floor-plan elements, and PDF-assisted starter layouts. Camera elements are
+floors, zones, draggable floor-plan elements, PDF-assisted starter layouts, and optional OpenAI
+Vision analysis for JPG/PNG/WebP floor-plan images. Camera elements are
 spatial markers only: this API intentionally has no RTSP/ONVIF connection endpoint.
 
 ## Run locally
@@ -97,9 +98,9 @@ server-maintained and ignored if included in a create payload.
 | Method | Path | Body/result |
 | --- | --- | --- |
 | GET | `/api/locations/:locationId/floors` | `{ floors }` |
-| POST | `/api/locations/:locationId/floors` | optional `{ level, name, canvas }`; `{ floor, location }` |
+| POST | `/api/locations/:locationId/floors` | required `{ name, purpose, confirmed: true }`, optional `{ level, spaceType, canvas }`; `{ floor, location }` |
 | GET | `/api/floors/:floorId` | `{ floor }` |
-| PATCH | `/api/floors/:floorId` | `{ level?, name?, canvas? }`; `{ floor }` |
+| PATCH | `/api/floors/:floorId` | `{ level?, name?, spaceType?, purpose?, canvas? }`; `{ floor }` |
 | DELETE | `/api/floors/:floorId` | `204`, cascades zones/elements/PDF |
 | GET | `/api/floors/:floorId/zones` | `{ zones }` |
 | POST | `/api/floors/:floorId/zones` | zone body; `{ zone, location }` |
@@ -124,11 +125,19 @@ Zone layout is normalized to percentages, matching the current UI:
 
 Bounds must remain inside `0..100`; aggregate zone capacity cannot exceed location capacity.
 
+`spaceType` classifies a tab as `building-floor`, `hall`, `outdoor`, `terrace`, `basement`,
+`mezzanine`, `service`, or `other`. Deleting a floor also removes its plan asset, zones, and plan
+elements.
+
 ### Plan editor
 
 | Method | Path | Result |
 | --- | --- | --- |
 | GET | `/api/floors/:floorId/plan` | `{ floor, zones, planElements, planPdfUrl, planFileName }` |
+| POST | `/api/floors/:floorId/plan/manual` | start an empty/manual plan |
+| POST | `/api/floors/:floorId/plan/import-pdf` | upload a PDF plan (10 MB max) |
+| POST | `/api/floors/:floorId/plan/import-image` | upload JPG/PNG/WebP and optionally run AI layout |
+| GET | `/api/floors/:floorId/plan/asset` | stream the protected source PDF/image |
 | PUT | `/api/floors/:floorId/plan/elements` | replace canvas with `{ elements }`; `{ floor, planElements }` |
 | POST | `/api/floors/:floorId/plan/elements` | create one; `{ planElement }` |
 | PATCH | `/api/plan-elements/:elementId` | update one; `{ planElement }` |
@@ -193,6 +202,22 @@ Response:
 
 The protected `GET /api/floors/:floorId/plan/pdf` streams the stored file as `application/pdf`.
 Uploading a new PDF replaces the old PDF and its auto-generated elements for that floor.
+
+### Photo import and AI layout
+
+`POST /api/floors/:floorId/plan/import-image` accepts a JPG, PNG, or WebP file up to 10 MB in the
+`image`, `plan`, or `file` multipart field. The original image is stored in MongoDB and returned as
+the protected `planAssetUrl`; the frontend uses it as a canvas background.
+
+Set `OPENAI_API_KEY` only in the backend `.env` to enable automatic draft recognition. The API sends
+the image through the OpenAI Responses API and creates normalized zones, walls, doors, tables, and
+labels. It creates camera markers only when a camera symbol is explicitly visible in the source.
+`OPENAI_PLAN_MODEL` defaults to `gpt-5.6`. AI results are drafts and remain editable in the manual
+canvas. If the key is missing, the request still succeeds with `aiAnalysis.status="skipped"`; if the
+AI call fails, the source image remains available and `aiAnalysis.status="failed"` is returned.
+
+`POST /api/floors/:floorId/plan/manual` removes the source file and prior auto-generated geometry,
+but preserves manually saved zones/elements and opens the same draggable canvas without a base file.
 
 ## Verification
 

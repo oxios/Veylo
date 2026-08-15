@@ -11,7 +11,7 @@ const zoneSchema = new mongoose.Schema({
   capacity: { type: Number, default: 0, min: 0, max: 100_000 },
   cameras: [{ type: String, trim: true, maxlength: 80 }],
   coverage: { type: Number, default: 0, min: 0, max: 100 },
-  source: { type: String, enum: ["manual", "pdf-auto"], default: "manual" },
+  source: { type: String, enum: ["manual", "pdf-auto", "image-ai"], default: "manual" },
   left: { type: Number, required: true, min: 0, max: 100 },
   top: { type: Number, required: true, min: 0, max: 100 },
   width: { type: Number, required: true, min: 0.1, max: 100 },

@@ -18,6 +18,9 @@ function toFrontendPlanElement(element, floor) {
     color: element.color,
     zIndex: element.zIndex,
     locked: element.locked,
+    viewAngle: element.viewAngle,
+    viewRadius: element.viewRadius,
+    viewEnabled: element.viewEnabled,
     source: element.source,
   };
 }
@@ -38,6 +41,9 @@ function toStoredPlanElement(input, floor, context = {}) {
     color: input.color,
     zIndex: input.zIndex,
     locked: input.locked,
+    viewAngle: input.viewAngle,
+    viewRadius: input.viewRadius,
+    viewEnabled: input.viewEnabled,
     source: context.source || "manual",
   };
 }

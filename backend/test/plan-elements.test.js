@@ -31,4 +31,8 @@ test("normalised canvas coordinates round-trip through storage coordinates", () 
   assert.equal(output.id, "table-1");
   assert.equal(output.kind, "table");
   assert.equal(output.floor, "1");
+  assert.equal(output.shape, "round");
+  assert.equal(output.color, "#d8b46b");
+  assert.equal(output.zIndex, 2);
+  assert.equal(output.locked, false);
 });

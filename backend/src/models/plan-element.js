@@ -18,7 +18,10 @@ const planElementSchema = new mongoose.Schema({
   color: { type: String, trim: true, maxlength: 32, default: "#5f746b" },
   zIndex: { type: Number, default: 0, min: -10_000, max: 10_000 },
   locked: { type: Boolean, default: false },
-  source: { type: String, enum: ["manual", "pdf-auto"], default: "manual" },
+  viewAngle: { type: Number, default: 70, min: 20, max: 160 },
+  viewRadius: { type: Number, default: 28, min: 5, max: 60 },
+  viewEnabled: { type: Boolean, default: true },
+  source: { type: String, enum: ["manual", "pdf-auto", "image-ai"], default: "manual" },
 }, schemaOptions);
 
 planElementSchema.index({ floorId: 1, zIndex: 1 });

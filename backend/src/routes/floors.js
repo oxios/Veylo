@@ -30,7 +30,9 @@ router.post("/locations/:locationId/floors", validate(schemas.floorCreate), asyn
     ownerId: req.user._id,
     locationId: location._id,
     level,
-    name: input.name || `${level} этаж`,
+    name: input.name,
+    spaceType: input.spaceType,
+    purpose: input.purpose,
     canvas: input.canvas,
   });
   const updatedLocation = await refreshLocationCounters(location._id, req.user._id);

@@ -10,27 +10,63 @@ const schemas = require("../validation/schemas");
 const { ownedFloor, ownedPlanElement } = require("../services/ownership");
 const { toFrontendPlanElement, toStoredPlanElement } = require("../services/plan-elements");
 const { buildAutoLayout, parsePdfMetadata, safeFileName } = require("../services/pdf-plan");
+const { analyzeFloorPlanImage } = require("../services/image-plan-ai");
 const ApiError = require("../utils/api-error");
 const asyncHandler = require("../utils/async-handler");
 
 const router = express.Router();
 
-const upload = multer({
+const uploadPdf = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 10 * 1024 * 1024, files: 1, fields: 5 },
   fileFilter: (_req, file, callback) => {
     const looksLikePdf = file.mimetype === "application/pdf" || file.mimetype === "application/x-pdf";
     callback(looksLikePdf ? null : new ApiError(415, "Only PDF files are supported", "UNSUPPORTED_FILE"), looksLikePdf);
   },
-});
-
-const uploadPdf = upload.fields([
+}).fields([
   { name: "plan", maxCount: 1 },
   { name: "file", maxCount: 1 },
 ]);
 
+const uploadImage = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 10 * 1024 * 1024, files: 1, fields: 5 },
+  fileFilter: (_req, file, callback) => {
+    const supported = ["image/jpeg", "image/png", "image/webp"].includes(file.mimetype);
+    callback(supported ? null : new ApiError(415, "Only JPG, PNG, and WebP images are supported", "UNSUPPORTED_IMAGE"), supported);
+  },
+}).fields([
+  { name: "plan", maxCount: 1 },
+  { name: "file", maxCount: 1 },
+  { name: "image", maxCount: 1 },
+]);
+
 function getUploadedFile(req) {
-  return req.files?.plan?.[0] || req.files?.file?.[0] || null;
+  return req.files?.plan?.[0] || req.files?.file?.[0] || req.files?.image?.[0] || null;
+}
+
+function detectedImageMime(buffer) {
+  if (buffer.length >= 8 && buffer.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))) return "image/png";
+  if (buffer.length >= 3 && buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff) return "image/jpeg";
+  if (buffer.length >= 12 && buffer.subarray(0, 4).toString("ascii") === "RIFF" && buffer.subarray(8, 12).toString("ascii") === "WEBP") return "image/webp";
+  return null;
+}
+
+function planAssetType(asset) {
+  return asset?.mimeType === "application/pdf" ? "pdf" : asset ? "image" : null;
+}
+
+function sendPlanAsset(res, asset) {
+  const encodedName = encodeURIComponent(asset.fileName).replace(/'/g, "%27");
+  res.set({
+    "Content-Type": asset.mimeType,
+    "Content-Length": String(asset.size),
+    "Content-Disposition": `inline; filename*=UTF-8''${encodedName}`,
+    "Cache-Control": "private, max-age=300",
+    ETag: `"${asset.sha256}"`,
+    "X-Content-Type-Options": "nosniff",
+  });
+  res.send(asset.data);
 }
 
 async function validateZoneIds(elements, floor, ownerId) {
@@ -74,32 +110,32 @@ router.get("/floors/:floorId/plan", asyncHandler(async (req, res) => {
   const [zones, elements, planAsset] = await Promise.all([
     Zone.find({ floorId: floor._id, ownerId: req.user._id }).sort({ createdAt: 1 }),
     PlanElement.find({ floorId: floor._id, ownerId: req.user._id }).sort({ zIndex: 1, createdAt: 1 }),
-    PlanAsset.findOne({ floorId: floor._id, ownerId: req.user._id }).select("fileName size sha256 updatedAt"),
+    PlanAsset.findOne({ floorId: floor._id, ownerId: req.user._id }).select("fileName mimeType size sha256 updatedAt"),
   ]);
+  const assetType = floor.planImport?.assetType || planAssetType(planAsset);
   res.json({
     floor: floor.toJSON(),
     zones: zones.map((zone) => zone.toJSON()),
     planElements: elements.map((element) => toFrontendPlanElement(element, floor)),
-    planPdfUrl: planAsset ? `/api/floors/${floor.id}/plan/pdf` : null,
-    planFileName: planAsset?.fileName || null,
+    planAssetUrl: planAsset ? `/api/floors/${floor.id}/plan/asset?v=${planAsset.sha256.slice(0, 12)}` : null,
+    planAssetType: assetType,
+    planPdfUrl: planAsset?.mimeType === "application/pdf" ? `/api/floors/${floor.id}/plan/pdf` : null,
+    planFileName: planAsset?.fileName || floor.planImport?.originalName || null,
   });
+}));
+
+router.get("/floors/:floorId/plan/asset", asyncHandler(async (req, res) => {
+  const floor = await ownedFloor(req.params.floorId, req.user._id);
+  const asset = await PlanAsset.findOne({ floorId: floor._id, ownerId: req.user._id }).select("+data");
+  if (!asset) throw new ApiError(404, "No plan file has been uploaded for this floor", "PLAN_ASSET_NOT_FOUND");
+  sendPlanAsset(res, asset);
 }));
 
 router.get("/floors/:floorId/plan/pdf", asyncHandler(async (req, res) => {
   const floor = await ownedFloor(req.params.floorId, req.user._id);
   const asset = await PlanAsset.findOne({ floorId: floor._id, ownerId: req.user._id }).select("+data");
-  if (!asset) throw new ApiError(404, "No PDF has been uploaded for this floor", "PLAN_PDF_NOT_FOUND");
-
-  const encodedName = encodeURIComponent(asset.fileName).replace(/'/g, "%27");
-  res.set({
-    "Content-Type": "application/pdf",
-    "Content-Length": String(asset.size),
-    "Content-Disposition": `inline; filename*=UTF-8''${encodedName}`,
-    "Cache-Control": "private, max-age=300",
-    ETag: `"${asset.sha256}"`,
-    "X-Content-Type-Options": "nosniff",
-  });
-  res.send(asset.data);
+  if (!asset || asset.mimeType !== "application/pdf") throw new ApiError(404, "No PDF has been uploaded for this floor", "PLAN_PDF_NOT_FOUND");
+  sendPlanAsset(res, asset);
 }));
 
 router.put("/floors/:floorId/plan/elements", validate(schemas.planElementsBulk), asyncHandler(async (req, res) => {
@@ -170,6 +206,209 @@ router.delete("/plan-elements/:elementId", asyncHandler(async (req, res) => {
   res.status(204).end();
 }));
 
+router.post("/floors/:floorId/plan/manual", asyncHandler(async (req, res) => {
+  const floor = await ownedFloor(req.params.floorId, req.user._id);
+  await Promise.all([
+    PlanAsset.deleteOne({ floorId: floor._id, ownerId: req.user._id }),
+    PlanElement.deleteMany({ floorId: floor._id, ownerId: req.user._id, source: { $in: ["pdf-auto", "image-ai"] } }),
+    Zone.deleteMany({ floorId: floor._id, ownerId: req.user._id, source: { $in: ["pdf-auto", "image-ai"] } }),
+  ]);
+  floor.planImport = {
+    originalName: "Ручной план",
+    assetType: "manual",
+    generatedElements: 0,
+    importedAt: new Date(),
+  };
+  await floor.save();
+  const [location, zones, elements] = await Promise.all([
+    Location.findOneAndUpdate(
+      { _id: floor.locationId, ownerId: req.user._id },
+      { $addToSet: { planFloors: String(floor.level) }, $max: { readiness: 24 } },
+      { new: true, runValidators: true },
+    ),
+    Zone.find({ floorId: floor._id, ownerId: req.user._id }).sort({ createdAt: 1 }),
+    PlanElement.find({ floorId: floor._id, ownerId: req.user._id }).sort({ zIndex: 1, createdAt: 1 }),
+  ]);
+  if (location) {
+    location.zones = await Zone.countDocuments({ locationId: location._id, ownerId: req.user._id });
+    await location.save();
+  }
+  res.status(201).json({
+    location: location?.toJSON(),
+    floor: floor.toJSON(),
+    zones: zones.map((zone) => zone.toJSON()),
+    planElements: elements.map((element) => toFrontendPlanElement(element, floor)),
+    planFileName: "Ручной план",
+    planAssetUrl: null,
+    planAssetType: "manual",
+  });
+}));
+
+router.post("/floors/:floorId/plan/import-image", uploadImage, asyncHandler(async (req, res) => {
+  const floor = await ownedFloor(req.params.floorId, req.user._id);
+  const file = getUploadedFile(req);
+  if (!file) throw new ApiError(422, "Attach a JPG, PNG, or WebP image in the plan, file, or image form-data field", "IMAGE_REQUIRED");
+  const actualMimeType = detectedImageMime(file.buffer);
+  if (!actualMimeType) throw new ApiError(415, "The uploaded file is not a valid JPG, PNG, or WebP image", "INVALID_IMAGE_SIGNATURE");
+
+  const planFileName = safeFileName(file.originalname);
+  const assetSha256 = crypto.createHash("sha256").update(file.buffer).digest("hex");
+  await PlanAsset.findOneAndUpdate(
+    { floorId: floor._id, ownerId: req.user._id },
+    {
+      $set: {
+        ownerId: req.user._id,
+        locationId: floor.locationId,
+        floorId: floor._id,
+        fileName: planFileName,
+        mimeType: actualMimeType,
+        size: file.size,
+        sha256: assetSha256,
+        data: file.buffer,
+      },
+    },
+    { upsert: true, new: true, runValidators: true },
+  );
+
+  await Promise.all([
+    PlanElement.deleteMany({ floorId: floor._id, ownerId: req.user._id, source: { $in: ["pdf-auto", "image-ai"] } }),
+    Zone.deleteMany({ floorId: floor._id, ownerId: req.user._id, source: { $in: ["pdf-auto", "image-ai"] } }),
+  ]);
+
+  floor.planImport = {
+    originalName: planFileName,
+    assetType: "image",
+    mimeType: actualMimeType,
+    generatedElements: 0,
+    importedAt: new Date(),
+  };
+  await floor.save();
+
+  const [location, zones, elements] = await Promise.all([
+    Location.findOneAndUpdate(
+      { _id: floor.locationId, ownerId: req.user._id },
+      { $addToSet: { planFloors: String(floor.level) }, $max: { readiness: 30 } },
+      { new: true, runValidators: true },
+    ),
+    Zone.find({ floorId: floor._id, ownerId: req.user._id }).sort({ createdAt: 1 }),
+    PlanElement.find({ floorId: floor._id, ownerId: req.user._id }).sort({ zIndex: 1, createdAt: 1 }),
+  ]);
+  if (location) {
+    location.zones = await Zone.countDocuments({ locationId: location._id, ownerId: req.user._id });
+    await location.save();
+  }
+
+  res.status(201).json({
+    location: location?.toJSON(),
+    floor: floor.toJSON(),
+    zones: zones.map((zone) => zone.toJSON()),
+    planElements: elements.map((element) => toFrontendPlanElement(element, floor)),
+    planFileName,
+    planAssetUrl: `/api/floors/${floor.id}/plan/asset?v=${assetSha256.slice(0, 12)}`,
+    planAssetType: "image",
+  });
+}));
+
+router.post("/floors/:floorId/plan/analyze-image", asyncHandler(async (req, res) => {
+  const floor = await ownedFloor(req.params.floorId, req.user._id);
+  const asset = await PlanAsset.findOne({ floorId: floor._id, ownerId: req.user._id }).select("+data");
+  if (!asset) throw new ApiError(404, "Upload a floor-plan image before starting AI analysis", "PLAN_IMAGE_NOT_FOUND");
+
+  const actualMimeType = detectedImageMime(asset.data);
+  if (!actualMimeType) throw new ApiError(415, "The current plan asset is not a JPG, PNG, or WebP image", "PLAN_IMAGE_REQUIRED");
+
+  let aiAnalysis;
+  try {
+    aiAnalysis = await analyzeFloorPlanImage({ buffer: asset.data, mimeType: actualMimeType, floor });
+  } catch (error) {
+    aiAnalysis = {
+      status: "failed",
+      model: process.env.OPENAI_PLAN_MODEL || "gpt-5.6",
+      confidence: 0,
+      summary: "Фото сохранено, но AI-разметка не завершилась. Повторите анализ или продолжите вручную.",
+      reason: error instanceof Error ? error.message.slice(0, 300) : "AI analysis failed",
+      zones: [],
+      elements: [],
+    };
+  }
+
+  if (aiAnalysis.status === "completed") {
+    await Promise.all([
+      PlanElement.deleteMany({ floorId: floor._id, ownerId: req.user._id, source: { $in: ["pdf-auto", "image-ai"] } }),
+      Zone.deleteMany({ floorId: floor._id, ownerId: req.user._id, source: { $in: ["pdf-auto", "image-ai"] } }),
+    ]);
+
+    const storedElements = aiAnalysis.elements.map((element) => toStoredPlanElement(element, floor, {
+      ownerId: req.user._id,
+      locationId: floor.locationId,
+      floorId: floor._id,
+      source: "image-ai",
+    }));
+    if (storedElements.length) await PlanElement.insertMany(storedElements);
+
+    const existingZoneNames = new Set((await Zone.find({ floorId: floor._id, ownerId: req.user._id }).select("name"))
+      .map((zone) => zone.name.toLocaleLowerCase()));
+    const zoneRecords = aiAnalysis.zones.filter((candidate) => {
+      const key = candidate.name.toLocaleLowerCase();
+      if (existingZoneNames.has(key)) return false;
+      existingZoneNames.add(key);
+      return true;
+    }).map((candidate) => ({
+      ...candidate,
+      ownerId: req.user._id,
+      locationId: floor.locationId,
+      floorId: floor._id,
+      floor: String(floor.level),
+      source: "image-ai",
+    }));
+    if (zoneRecords.length) await Zone.insertMany(zoneRecords);
+
+    floor.planImport = {
+      originalName: asset.fileName,
+      assetType: "image",
+      mimeType: actualMimeType,
+      generatedElements: storedElements.length,
+      importedAt: new Date(),
+    };
+    await floor.save();
+  }
+
+  const [location, zones, elements] = await Promise.all([
+    Location.findOneAndUpdate(
+      { _id: floor.locationId, ownerId: req.user._id },
+      { $addToSet: { planFloors: String(floor.level) }, $max: { readiness: 30 } },
+      { new: true, runValidators: true },
+    ),
+    Zone.find({ floorId: floor._id, ownerId: req.user._id }).sort({ createdAt: 1 }),
+    PlanElement.find({ floorId: floor._id, ownerId: req.user._id }).sort({ zIndex: 1, createdAt: 1 }),
+  ]);
+  if (location) {
+    location.zones = await Zone.countDocuments({ locationId: location._id, ownerId: req.user._id });
+    await location.save();
+  }
+
+  const generatedElements = aiAnalysis.status === "completed" ? aiAnalysis.elements.length : 0;
+  const generatedZones = aiAnalysis.status === "completed" ? aiAnalysis.zones.length : 0;
+  res.json({
+    location: location?.toJSON(),
+    floor: floor.toJSON(),
+    zones: zones.map((zone) => zone.toJSON()),
+    planElements: elements.map((element) => toFrontendPlanElement(element, floor)),
+    planFileName: asset.fileName,
+    planAssetUrl: `/api/floors/${floor.id}/plan/asset?v=${asset.sha256.slice(0, 12)}`,
+    planAssetType: "image",
+    aiAnalysis: {
+      status: aiAnalysis.status,
+      model: aiAnalysis.model,
+      confidence: aiAnalysis.confidence,
+      summary: aiAnalysis.summary,
+      reason: aiAnalysis.reason,
+      generatedElements,
+      generatedZones,
+    },
+  });
+}));
+
 router.post("/floors/:floorId/plan/import-pdf", uploadPdf, asyncHandler(async (req, res) => {
   const floor = await ownedFloor(req.params.floorId, req.user._id);
   const file = getUploadedFile(req);
@@ -183,8 +422,8 @@ router.post("/floors/:floorId/plan/import-pdf", uploadPdf, asyncHandler(async (r
   const zoneCandidates = inferredZoneCandidates(generated, floor);
 
   await Promise.all([
-    PlanElement.deleteMany({ floorId: floor._id, ownerId: req.user._id, source: "pdf-auto" }),
-    Zone.deleteMany({ floorId: floor._id, ownerId: req.user._id, source: "pdf-auto" }),
+    PlanElement.deleteMany({ floorId: floor._id, ownerId: req.user._id, source: { $in: ["pdf-auto", "image-ai"] } }),
+    Zone.deleteMany({ floorId: floor._id, ownerId: req.user._id, source: { $in: ["pdf-auto", "image-ai"] } }),
   ]);
   const inserted = generated.length ? await PlanElement.insertMany(generated.map((element) => ({
     ...element,
@@ -228,6 +467,8 @@ router.post("/floors/:floorId/plan/import-pdf", uploadPdf, asyncHandler(async (r
   );
   floor.planImport = {
     originalName: planFileName,
+    assetType: "pdf",
+    mimeType: "application/pdf",
     pageCount: metadata.pageCount,
     parsedPageCount: metadata.parsedPageCount,
     textCharacters: metadata.textCharacters,
@@ -236,13 +477,14 @@ router.post("/floors/:floorId/plan/import-pdf", uploadPdf, asyncHandler(async (r
   };
   await floor.save();
 
-  const [location, zones, generatedZoneCount] = await Promise.all([
+  const [location, zones, elements, generatedZoneCount] = await Promise.all([
     Location.findOneAndUpdate(
       { _id: floor.locationId, ownerId: req.user._id },
       { $addToSet: { planFloors: String(floor.level) }, $max: { readiness: 30 } },
       { new: true, runValidators: true },
     ),
     Zone.find({ floorId: floor._id, ownerId: req.user._id }).sort({ createdAt: 1 }),
+    PlanElement.find({ floorId: floor._id, ownerId: req.user._id }).sort({ zIndex: 1, createdAt: 1 }),
     Zone.countDocuments({ floorId: floor._id, ownerId: req.user._id, source: "pdf-auto" }),
   ]);
   if (location) {
@@ -254,8 +496,10 @@ router.post("/floors/:floorId/plan/import-pdf", uploadPdf, asyncHandler(async (r
     location: location?.toJSON(),
     floor: floor.toJSON(),
     zones: zones.map((zone) => zone.toJSON()),
-    planElements: inserted.map((element) => toFrontendPlanElement(element, floor)),
+    planElements: elements.map((element) => toFrontendPlanElement(element, floor)),
     planFileName,
+    planAssetUrl: `/api/floors/${floor.id}/plan/asset`,
+    planAssetType: "pdf",
     planPdfUrl: `/api/floors/${floor.id}/plan/pdf`,
     importSummary: {
       pageCount: metadata.pageCount,

@@ -24,6 +24,7 @@ import {
   EyeOff,
   Gauge,
   HardDrive,
+  ImagePlus,
   Info,
   Layers3,
   ListChecks,
@@ -32,6 +33,8 @@ import {
   MapPin,
   MousePointer2,
   Network,
+  PanelRightClose,
+  PanelRightOpen,
   Plus,
   RefreshCw,
   Router,
@@ -81,6 +84,8 @@ export type VenueLocation = {
   planElements?: PlanElement[];
   planFileNames?: Record<string, string>;
   planPdfUrls?: Record<string, string>;
+  planAssetUrls?: Record<string, string>;
+  planAssetTypes?: Record<string, "pdf" | "image" | "manual">;
   backendFloors?: VenueFloorRecord[];
 };
 
@@ -88,8 +93,33 @@ export type VenueFloorRecord = {
   id: string;
   level: number;
   name: string;
+  spaceType?: FloorSpaceType;
+  purpose?: string;
   canvas?: { width: number; height: number; gridSize: number };
-  planImport?: { originalName?: string; generatedElements?: number };
+  planImport?: { originalName?: string; assetType?: "pdf" | "image" | "manual"; mimeType?: string; generatedElements?: number };
+};
+
+type FloorSpaceType = "building-floor" | "hall" | "outdoor" | "terrace" | "basement" | "mezzanine" | "service" | "other";
+
+const FLOOR_SPACE_TYPES: Array<{ value: FloorSpaceType; label: string; example: string }> = [
+  { value: "building-floor", label: "Этаж внутри здания", example: "2 этаж" },
+  { value: "hall", label: "Отдельный зал", example: "2 зал" },
+  { value: "outdoor", label: "Улица / наружная площадка", example: "Улица" },
+  { value: "terrace", label: "Терраса / веранда", example: "Летняя терраса" },
+  { value: "basement", label: "Цоколь / подвал", example: "Цоколь" },
+  { value: "mezzanine", label: "Антресоль", example: "Антресоль" },
+  { value: "service", label: "Служебное пространство", example: "Служебный этаж" },
+  { value: "other", label: "Другое", example: "Дополнительная площадка" },
+];
+
+type PlanAiAnalysis = {
+  status: "completed" | "skipped" | "failed";
+  model?: string;
+  confidence?: number;
+  summary: string;
+  reason?: string;
+  generatedElements: number;
+  generatedZones: number;
 };
 
 export type VenueZoneDefinition = {
@@ -155,92 +185,34 @@ function seededPlanElements(location: VenueLocation): PlanElement[] {
   return result;
 }
 
-export const venueLocations: VenueLocation[] = [
-  {
-    id: "franko",
-    name: "Franko, 12",
-    city: "Івано-Франківськ",
-    address: "вул. Івана Франка, 12",
-    format: "Full service",
-    timezone: "Europe/Kyiv · UTC+3",
-    floors: 2,
-    zones: 14,
-    cameras: 5,
-    online: 4,
-    readiness: 92,
-    capacity: 118,
-    businessHours: "08:00–23:00",
-    coordinates: { lat: 48.9226, lng: 24.7111 },
-    status: "attention",
-    demoSeeded: true,
-    privacyConfigured: true,
-    historyDays: 90,
-    connectedSources: ["Poster POS", "OpenWeather", "Google Business", "Worksection", "BAS / 1C", "Telegram", "KDS", "CRM / Loyalty", "Inventory", "IoT / HACCP", "Delivery aggregators", "Telephony / Reservations"],
-  },
-  {
-    id: "shevchenka",
-    name: "Shevchenka, 8",
-    city: "Львів",
-    address: "просп. Шевченка, 8",
-    format: "Coffee & bakery",
-    timezone: "Europe/Kyiv · UTC+3",
-    floors: 1,
-    zones: 8,
-    cameras: 4,
-    online: 4,
-    readiness: 100,
-    capacity: 64,
-    businessHours: "08:00–23:00",
-    coordinates: { lat: 49.8397, lng: 24.0297 },
-    status: "ready",
-    demoSeeded: true,
-    privacyConfigured: true,
-    historyDays: 120,
-    connectedSources: ["Poster POS", "OpenWeather", "Google Business", "Worksection", "BAS / 1C", "Telegram", "KDS", "CRM / Loyalty", "Inventory", "IoT / HACCP", "Delivery aggregators", "Telephony / Reservations"],
-  },
-  {
-    id: "dniprovska",
-    name: "Dniprovska, 21",
-    city: "Київ",
-    address: "наб. Дніпровська, 21",
-    format: "Fast casual",
-    timezone: "Europe/Kyiv · UTC+3",
-    floors: 2,
-    zones: 11,
-    cameras: 7,
-    online: 7,
-    readiness: 98,
-    capacity: 146,
-    businessHours: "09:00–23:00",
-    coordinates: { lat: 50.4501, lng: 30.5234 },
-    status: "ready",
-    demoSeeded: true,
-    privacyConfigured: true,
-    historyDays: 84,
-    connectedSources: ["Poster POS", "OpenWeather", "Google Business", "Worksection", "BAS / 1C", "Telegram", "KDS", "CRM / Loyalty", "Inventory", "IoT / HACCP", "Delivery aggregators", "Telephony / Reservations"],
-  },
-  {
-    id: "central",
-    name: "Central Café",
-    city: "Чернівці",
-    address: "пл. Центральна, 4",
-    format: "Coffee shop",
-    timezone: "Europe/Kyiv · UTC+3",
-    floors: 1,
-    zones: 5,
-    cameras: 2,
-    online: 1,
-    readiness: 61,
-    capacity: 38,
-    businessHours: "08:00–22:00",
-    coordinates: { lat: 48.2915, lng: 25.9403 },
-    status: "setup",
-    demoSeeded: true,
-    privacyConfigured: true,
-    historyDays: 63,
-    connectedSources: ["Poster POS", "OpenWeather", "Google Business", "Telegram", "KDS", "CRM / Loyalty", "IoT / HACCP", "Delivery aggregators", "Telephony / Reservations"],
-  },
-];
+export const emptyVenueLocation: VenueLocation = {
+  id: "",
+  name: "Локация не выбрана",
+  city: "Добавьте первую локацию",
+  address: "—",
+  format: "—",
+  timezone: "Europe/Kyiv · UTC+3",
+  floors: 0,
+  zones: 0,
+  cameras: 0,
+  online: 0,
+  readiness: 0,
+  capacity: 0,
+  businessHours: "—",
+  coordinates: { lat: 0, lng: 0 },
+  status: "setup",
+  demoSeeded: false,
+  privacyConfigured: false,
+  historyDays: 0,
+  planFloors: [],
+  customZones: [],
+  configuredCameras: [],
+  configuredScreens: [],
+  zoneCameraLinks: {},
+  connectedSources: [],
+};
+
+export const venueLocations: VenueLocation[] = [];
 
 type Notify = (text: string, context?: { location?: VenueLocation }) => void;
 type Go = (page: string) => void;
@@ -578,19 +550,6 @@ export function LocationsManager({
     const first = locations.find((item) => nextFilter === "all" || (nextFilter === "ready" ? item.status === "ready" : item.status !== "ready"));
     if (first) setSelectedId(first.id);
   };
-  const addFloorToSelected = async () => {
-    const level = selected.floors + 1;
-    try {
-      const result = await apiFetch<{ floor: VenueFloorRecord; location: VenueLocation }>(`/locations/${encodeURIComponent(selected.id)}/floors`, {
-        method: "POST",
-        body: JSON.stringify({ level, name: `${level} этаж` }),
-      });
-      const updated = { ...selected, ...result.location, backendFloors: [...(selected.backendFloors ?? []), result.floor] };
-      onLocationUpdate(updated); onLocationChange(updated); notify(`${level} этаж добавлен в ${selected.name} · загрузите PDF-план`, { location: updated }); go("floorplan");
-    } catch (error) {
-      notify(`Не удалось добавить этаж: ${error instanceof Error ? error.message : "ошибка API"}`);
-    }
-  };
   const createLocation = async () => {
     const capacity = Number(form.capacity);
     const latitude = Number(form.latitude);
@@ -669,9 +628,19 @@ export function LocationsManager({
           </button>
           );
         })}
+        {filteredLocations.length === 0 && (
+          <article className="card sys-location-empty">
+            <i><Building2 /></i>
+            <h2>{locations.length === 0 ? "Локаций пока нет" : "По фильтру ничего не найдено"}</h2>
+            <p>{locations.length === 0 ? "Добавьте первое заведение — после этого можно загрузить план этажа и создать зоны." : "Вернитесь ко всем локациям или выберите другой статус."}</p>
+            <button className="primary" onClick={() => locations.length === 0 ? setCreateOpen(true) : changeFilter("all")}>
+              {locations.length === 0 ? <><Plus /> Добавить локацию</> : "Показать все"}
+            </button>
+          </article>
+        )}
       </section>
 
-      <section className="sys-location-detail">
+      {locations.length > 0 && <section className="sys-location-detail">
         <article className="card sys-location-profile">
           <div className="card-head">
             <div>
@@ -734,8 +703,8 @@ export function LocationsManager({
                   <ChevronRight />
                 </button>
               })}
-              <button className="sys-add-floor" onClick={() => void addFloorToSelected()}>
-                <Plus /> Добавить этаж
+              <button className="sys-add-floor" onClick={() => { onLocationChange(selected); go("floorplan"); }}>
+                <Layers3 /> Управлять этажами
               </button>
             </div>
           )}
@@ -793,7 +762,7 @@ export function LocationsManager({
             Открыть план запуска <ArrowRight />
           </button>
         </aside>
-      </section>
+      </section>}
 
       {createOpen && (
         <div className="sys-overlay" onMouseDown={() => setCreateOpen(false)}>
@@ -877,7 +846,14 @@ export function FloorPlanManager({ notify, location, go, onLocationUpdate }: { n
   const [layer, setLayer] = useState("coverage");
   const [addZone, setAddZone] = useState(false);
   const [floor, setFloor] = useState("1");
-  const [floorCount, setFloorCount] = useState(Math.max(1, location.floors));
+  const [addFloorOpen, setAddFloorOpen] = useState(false);
+  const [floorForm, setFloorForm] = useState<{ name: string; spaceType: FloorSpaceType; purpose: string; confirmed: boolean }>({ name: "", spaceType: "building-floor", purpose: "Гостевая зона", confirmed: false });
+  const [floorError, setFloorError] = useState("");
+  const [creatingFloor, setCreatingFloor] = useState(false);
+  const [deleteFloorTarget, setDeleteFloorTarget] = useState<VenueFloorRecord | null>(null);
+  const [deletingFloor, setDeletingFloor] = useState(false);
+  const [deleteFloorError, setDeleteFloorError] = useState("");
+  const [zonePanelVisible, setZonePanelVisible] = useState(false);
   const [planReady, setPlanReady] = useState<string[]>(location.planFloors ?? (location.zones > 0 ? ["1"] : []));
   const [customZones, setCustomZones] = useState<FloorZone[]>(location.customZones ?? []);
   const [zoneForm, setZoneForm] = useState({ name: "VIP-зал", type: "Dining", capacity: "12" });
@@ -889,10 +865,19 @@ export function FloorPlanManager({ notify, location, go, onLocationUpdate }: { n
   const [planElements, setPlanElements] = useState<PlanElement[]>(location.planElements ?? seededPlanElements(location));
   const [planFileNames, setPlanFileNames] = useState<Record<string, string>>(location.planFileNames ?? {});
   const [planPdfUrls, setPlanPdfUrls] = useState<Record<string, string>>(location.planPdfUrls ?? {});
+  const [planAssetUrls, setPlanAssetUrls] = useState<Record<string, string>>(location.planAssetUrls ?? {});
+  const [planAssetTypes, setPlanAssetTypes] = useState<Record<string, "pdf" | "image" | "manual">>(location.planAssetTypes ?? {});
+  const [planAiAnalysis, setPlanAiAnalysis] = useState<Record<string, PlanAiAnalysis>>({});
   const [uploadingPlan, setUploadingPlan] = useState(false);
   const [planUploadError, setPlanUploadError] = useState("");
+  const [aiRunning, setAiRunning] = useState(false);
+  const [aiProgress, setAiProgress] = useState(0);
+  const [aiElapsed, setAiElapsed] = useState(0);
   const [floorRecords, setFloorRecords] = useState<VenueFloorRecord[]>(location.backendFloors ?? []);
+  const sortedFloorRecords = useMemo(() => [...floorRecords].sort((a, b) => a.level - b.level), [floorRecords]);
+  const nextFloorLevel = Math.max(0, ...floorRecords.map((item) => item.level)) + 1;
   const planInputRef = useRef<HTMLInputElement>(null);
+  const imageInputRef = useRef<HTMLInputElement>(null);
   const cameraPlacements: Array<[string, number, number, string]> = [
     ["CAM-01", 17, 48, "right"], ["CAM-02", 40, 21, "down"], ["CAM-03", 73, 23, "down"], ["CAM-04", 76, 62, "left"], ["CAM-05", 31, 77, "down"], ["CAM-06", 52, 68, "left"], ["CAM-07", 86, 72, "left"],
   ];
@@ -904,10 +889,24 @@ export function FloorPlanManager({ notify, location, go, onLocationUpdate }: { n
   }), [location, customZones, linkedOverrides]);
   const activeFloorRecord = floorRecords.find((item) => item.level === Number(floor));
   useEffect(() => {
+    if (!aiRunning) return;
+    const startedAt = Date.now();
+    const timer = window.setInterval(() => {
+      const elapsed = Math.floor((Date.now() - startedAt) / 1000);
+      setAiElapsed(elapsed);
+      setAiProgress(Math.min(92, 6 + Math.round(elapsed * 1.35)));
+    }, 500);
+    return () => window.clearInterval(timer);
+  }, [aiRunning]);
+  useEffect(() => {
     let active = true;
     apiFetch<{ floors: VenueFloorRecord[] }>(`/locations/${encodeURIComponent(location.id)}/floors`)
       .then(({ floors: savedFloors }) => {
-        if (active) setFloorRecords(savedFloors);
+        if (!active) return;
+        setFloorRecords(savedFloors);
+        setFloor((current) => savedFloors.length && !savedFloors.some((item) => String(item.level) === current)
+          ? String(savedFloors[0].level)
+          : current);
       })
       .catch(() => undefined);
     return () => { active = false; };
@@ -915,14 +914,16 @@ export function FloorPlanManager({ notify, location, go, onLocationUpdate }: { n
   useEffect(() => {
     if (!activeFloorRecord) return;
     let active = true;
-    apiFetch<{ floor: VenueFloorRecord; zones: FloorZone[]; planElements: PlanElement[]; planPdfUrl?: string }>(`/floors/${encodeURIComponent(activeFloorRecord.id)}/plan`)
-      .then(({ floor: savedFloor, zones: savedZones, planElements: savedElements, planPdfUrl }) => {
+    apiFetch<{ floor: VenueFloorRecord; zones: FloorZone[]; planElements: PlanElement[]; planFileName?: string; planAssetUrl?: string; planAssetType?: "pdf" | "image" | "manual"; planPdfUrl?: string }>(`/floors/${encodeURIComponent(activeFloorRecord.id)}/plan`)
+      .then(({ floor: savedFloor, zones: savedZones, planElements: savedElements, planFileName, planAssetUrl, planAssetType, planPdfUrl }) => {
         if (!active) return;
         setCustomZones((current) => [...current.filter((item) => item.floor !== floor), ...savedZones]);
         setPlanElements((current) => [...current.filter((item) => item.floor !== floor), ...savedElements]);
-        if (savedFloor.planImport?.originalName) {
-          setPlanFileNames((current) => ({ ...current, [floor]: savedFloor.planImport?.originalName ?? "floor-plan.pdf" }));
+        if (savedFloor.planImport?.originalName || planFileName) {
+          setPlanFileNames((current) => ({ ...current, [floor]: planFileName ?? savedFloor.planImport?.originalName ?? "План этажа" }));
           if (planPdfUrl) setPlanPdfUrls((current) => ({ ...current, [floor]: planPdfUrl }));
+          if (planAssetUrl) setPlanAssetUrls((current) => ({ ...current, [floor]: planAssetUrl }));
+          if (planAssetType) setPlanAssetTypes((current) => ({ ...current, [floor]: planAssetType }));
           setPlanReady((current) => current.includes(floor) ? current : [...current, floor]);
         }
       })
@@ -944,7 +945,7 @@ export function FloorPlanManager({ notify, location, go, onLocationUpdate }: { n
       try {
         const result = await apiFetch<{ zone: FloorZone; location: VenueLocation }>(`/floors/${encodeURIComponent(activeFloorRecord.id)}/zones`, { method: "POST", body: JSON.stringify(created) });
         const nextCustomZones = [...customZones, result.zone];
-        const updated = { ...location, ...result.location, backendFloors: floorRecords, customZones: nextCustomZones, planElements, planFileNames };
+        const updated = { ...location, ...result.location, backendFloors: floorRecords, customZones: nextCustomZones, planElements, planFileNames, planPdfUrls, planAssetUrls, planAssetTypes };
         setCustomZones(nextCustomZones); setSelected(result.zone.id); setAddZone(false); setZoneError(""); setEditingBounds(true); onLocationUpdate(updated); notify(`${result.zone.name} создана на ${floor} этаже · можно расставлять объекты`, { location: updated });
         return;
       } catch (error) {
@@ -958,7 +959,7 @@ export function FloorPlanManager({ notify, location, go, onLocationUpdate }: { n
   };
   const commitPlanElements = (nextElements: PlanElement[]) => {
     setPlanElements(nextElements);
-    const updated = { ...location, planElements: nextElements, planFileNames, planPdfUrls };
+    const updated = { ...location, planElements: nextElements, planFileNames, planPdfUrls, planAssetUrls, planAssetTypes };
     onLocationUpdate(updated);
     if (activeFloorRecord) {
       void apiFetch<{ planElements: PlanElement[] }>(`/floors/${encodeURIComponent(activeFloorRecord.id)}/plan/elements`, {
@@ -971,19 +972,161 @@ export function FloorPlanManager({ notify, location, go, onLocationUpdate }: { n
     }
     notify(`План ${floor} этажа сохранён · ${nextElements.filter((item) => item.floor === floor).length} объектов`, { location: updated });
   };
+  const deletePlanZones = async (ids: string[]) => {
+    const deleting = new Set(ids);
+    try {
+      await Promise.all(ids.map((id) => apiFetch<void>(`/zones/${encodeURIComponent(id)}`, { method: "DELETE" })));
+      const nextZones = customZones.filter((item) => !deleting.has(item.id));
+      const updated = { ...location, customZones: nextZones, zones: nextZones.length };
+      setCustomZones(nextZones);
+      setSelected("");
+      onLocationUpdate(updated);
+      notify(`Удалено зон: ${ids.length}`, { location: updated });
+    } catch (error) {
+      setPlanUploadError(error instanceof Error ? error.message : "Не удалось удалить выбранные зоны");
+    }
+  };
+  const openAddFloor = () => {
+    setFloorForm({ name: "", spaceType: "building-floor", purpose: "Гостевая зона", confirmed: false });
+    setFloorError("");
+    setAddFloorOpen(true);
+  };
   const addFloor = async () => {
-    const nextLevel = floorCount + 1;
+    const name = floorForm.name.trim();
+    if (name.length < 3) { setFloorError("Укажите название длиной не менее 3 символов."); return; }
+    if (floorRecords.some((item) => item.name.toLocaleLowerCase() === name.toLocaleLowerCase())) { setFloorError("Этаж с таким названием уже существует."); return; }
+    if (!floorForm.confirmed) { setFloorError("Подтвердите добавление отдельного пространства."); return; }
+    setCreatingFloor(true);
+    setFloorError("");
     try {
       const result = await apiFetch<{ floor: VenueFloorRecord; location: VenueLocation }>(`/locations/${encodeURIComponent(location.id)}/floors`, {
         method: "POST",
-        body: JSON.stringify({ level: nextLevel, name: `${nextLevel} этаж` }),
+        body: JSON.stringify({ level: nextFloorLevel, name, spaceType: floorForm.spaceType, purpose: floorForm.purpose, confirmed: true }),
       });
       const nextFloors = [...floorRecords, result.floor];
-      const updated = { ...location, ...result.location, backendFloors: nextFloors, customZones, planElements, planFileNames, planPdfUrls };
-      setFloorRecords(nextFloors); setFloorCount(nextLevel); setFloor(String(nextLevel)); setSelected(""); onLocationUpdate(updated); notify(`${nextLevel} этаж добавлен · загрузите PDF-план`, { location: updated });
+      const updated = { ...location, ...result.location, backendFloors: nextFloors, customZones, planElements, planFileNames, planPdfUrls, planAssetUrls, planAssetTypes };
+      setFloorRecords(nextFloors); setFloor(String(result.floor.level)); setSelected(""); setAddFloorOpen(false); onLocationUpdate(updated); notify(`${result.floor.name} добавлен · ${FLOOR_SPACE_TYPES.find((item) => item.value === result.floor.spaceType)?.label ?? result.floor.purpose ?? floorForm.purpose}. Теперь загрузите PDF, фото или соберите план вручную.`, { location: updated });
     } catch (error) {
-      notify(`Не удалось добавить этаж: ${error instanceof Error ? error.message : "ошибка API"}`);
+      setFloorError(error instanceof Error ? error.message : "Не удалось добавить этаж");
+    } finally {
+      setCreatingFloor(false);
     }
+  };
+  const requestDeleteFloor = (record: VenueFloorRecord) => {
+    setDeleteFloorError("");
+    setDeleteFloorTarget(record);
+  };
+  const deleteFloor = async () => {
+    if (!deleteFloorTarget) return;
+    setDeletingFloor(true);
+    setDeleteFloorError("");
+    try {
+      await apiFetch<null>(`/floors/${encodeURIComponent(deleteFloorTarget.id)}`, { method: "DELETE" });
+      const removedFloor = String(deleteFloorTarget.level);
+      const targetIndex = sortedFloorRecords.findIndex((item) => item.id === deleteFloorTarget.id);
+      const nextFloorRecords = sortedFloorRecords.filter((item) => item.id !== deleteFloorTarget.id);
+      const nextActiveFloor = nextFloorRecords[targetIndex] ?? nextFloorRecords[targetIndex - 1] ?? nextFloorRecords[0];
+      const nextZones = customZones.filter((item) => item.floor !== removedFloor);
+      const nextElements = planElements.filter((item) => item.floor !== removedFloor);
+      const nextNames = { ...planFileNames };
+      const nextPdfUrls = { ...planPdfUrls };
+      const nextAssetUrls = { ...planAssetUrls };
+      const nextAssetTypes = { ...planAssetTypes };
+      delete nextNames[removedFloor];
+      delete nextPdfUrls[removedFloor];
+      delete nextAssetUrls[removedFloor];
+      delete nextAssetTypes[removedFloor];
+      const nextPlans = planReady.filter((item) => item !== removedFloor);
+      const nextAnalysis = { ...planAiAnalysis };
+      delete nextAnalysis[removedFloor];
+      const updated: VenueLocation = {
+        ...location,
+        floors: nextFloorRecords.length,
+        zones: nextZones.length,
+        readiness: Math.max(0, location.readiness - 5),
+        backendFloors: nextFloorRecords,
+        customZones: nextZones,
+        planElements: nextElements,
+        planFileNames: nextNames,
+        planPdfUrls: nextPdfUrls,
+        planAssetUrls: nextAssetUrls,
+        planAssetTypes: nextAssetTypes,
+        planFloors: nextPlans,
+      };
+      setFloorRecords(nextFloorRecords);
+      setCustomZones(nextZones);
+      setPlanElements(nextElements);
+      setPlanFileNames(nextNames);
+      setPlanPdfUrls(nextPdfUrls);
+      setPlanAssetUrls(nextAssetUrls);
+      setPlanAssetTypes(nextAssetTypes);
+      setPlanReady(nextPlans);
+      setPlanAiAnalysis(nextAnalysis);
+      setFloor(nextActiveFloor ? String(nextActiveFloor.level) : "1");
+      setSelected(nextActiveFloor ? nextZones.find((item) => item.floor === String(nextActiveFloor.level))?.id ?? "" : "");
+      setDeleteFloorTarget(null);
+      onLocationUpdate(updated);
+      notify(`${deleteFloorTarget.name} удалён вместе с планом, зонами и объектами`, { location: updated });
+    } catch (error) {
+      setDeleteFloorError(error instanceof Error ? error.message : "Не удалось удалить этаж");
+    } finally {
+      setDeletingFloor(false);
+    }
+  };
+  type PlanImportResult = {
+    location: VenueLocation;
+    floor: VenueFloorRecord;
+    zones: FloorZone[];
+    planElements: PlanElement[];
+    planFileName: string;
+    planAssetUrl?: string | null;
+    planAssetType: "pdf" | "image" | "manual";
+    planPdfUrl?: string | null;
+    importSummary?: { generatedElements: number; generatedZones: number };
+    aiAnalysis?: PlanAiAnalysis;
+  };
+  const applyPlanImportResult = (result: PlanImportResult, message: string) => {
+    const nextElements = [...planElements.filter((item) => item.floor !== floor), ...result.planElements];
+    const nextZones = [...customZones.filter((item) => item.floor !== floor), ...result.zones];
+    const nextNames = { ...planFileNames, [floor]: result.planFileName };
+    const nextPdfUrls = { ...planPdfUrls };
+    const nextAssetUrls = { ...planAssetUrls };
+    if (result.planPdfUrl) nextPdfUrls[floor] = result.planPdfUrl;
+    else delete nextPdfUrls[floor];
+    if (result.planAssetUrl) nextAssetUrls[floor] = result.planAssetUrl;
+    else delete nextAssetUrls[floor];
+    const nextAssetTypes = { ...planAssetTypes, [floor]: result.planAssetType };
+    const nextPlans = planReady.includes(floor) ? planReady : [...planReady, floor];
+    const nextFloorRecords = floorRecords.map((item) => item.id === result.floor.id ? result.floor : item);
+    const updated = {
+      ...location,
+      ...result.location,
+      backendFloors: nextFloorRecords,
+      customZones: nextZones,
+      planElements: nextElements,
+      planFileNames: nextNames,
+      planPdfUrls: nextPdfUrls,
+      planAssetUrls: nextAssetUrls,
+      planAssetTypes: nextAssetTypes,
+      planFloors: nextPlans,
+    };
+    setFloorRecords(nextFloorRecords);
+    setPlanElements(nextElements);
+    setCustomZones(nextZones);
+    setPlanFileNames(nextNames);
+    setPlanPdfUrls(nextPdfUrls);
+    setPlanAssetUrls(nextAssetUrls);
+    setPlanAssetTypes(nextAssetTypes);
+    setPlanReady(nextPlans);
+    setSelected(nextZones.find((item) => item.floor === floor)?.id ?? "");
+    setPlanAiAnalysis((current) => {
+      const next = { ...current };
+      if (result.aiAnalysis) next[floor] = result.aiAnalysis;
+      else delete next[floor];
+      return next;
+    });
+    onLocationUpdate(updated);
+    notify(message, { location: updated });
   };
   const uploadPlan = async (file: File) => {
     setPlanUploadError("");
@@ -994,20 +1137,73 @@ export function FloorPlanManager({ notify, location, go, onLocationUpdate }: { n
     formData.append("plan", file);
     setUploadingPlan(true);
     try {
-      const result = await apiFetch<{ location: VenueLocation; floor: VenueFloorRecord; zones: FloorZone[]; planElements: PlanElement[]; planFileName: string; planPdfUrl?: string; importSummary: { generatedElements: number; generatedZones: number } }>(`/floors/${encodeURIComponent(activeFloorRecord.id)}/plan/import-pdf`, { method: "POST", body: formData });
-      const nextElements = [...planElements.filter((item) => item.floor !== floor), ...result.planElements];
-      const nextZones = [...customZones.filter((item) => item.floor !== floor), ...result.zones];
-      const nextNames = { ...planFileNames, [floor]: result.planFileName };
-      const nextPdfUrls = result.planPdfUrl ? { ...planPdfUrls, [floor]: result.planPdfUrl } : planPdfUrls;
-      const nextPlans = planReady.includes(floor) ? planReady : [...planReady, floor];
-      const nextFloorRecords = floorRecords.map((item) => item.id === result.floor.id ? result.floor : item);
-      const updated = { ...location, ...result.location, backendFloors: nextFloorRecords, customZones: nextZones, planElements: nextElements, planFileNames: nextNames, planPdfUrls: nextPdfUrls, planFloors: nextPlans };
-      setFloorRecords(nextFloorRecords); setPlanElements(nextElements); setCustomZones(nextZones); setPlanFileNames(nextNames); setPlanPdfUrls(nextPdfUrls); setPlanReady(nextPlans); setSelected(nextZones.find((item) => item.floor === floor)?.id ?? ""); onLocationUpdate(updated); notify(`${result.planFileName}: создано ${result.importSummary.generatedElements} объектов и ${result.importSummary.generatedZones} зон`, { location: updated });
+      const result = await apiFetch<PlanImportResult>(`/floors/${encodeURIComponent(activeFloorRecord.id)}/plan/import-pdf`, { method: "POST", body: formData });
+      applyPlanImportResult(result, `${result.planFileName}: создано ${result.importSummary?.generatedElements ?? 0} объектов и ${result.importSummary?.generatedZones ?? 0} зон`);
     } catch (error) {
       setPlanUploadError(error instanceof Error ? error.message : "Не удалось обработать PDF");
     } finally {
       setUploadingPlan(false);
       if (planInputRef.current) planInputRef.current.value = "";
+    }
+  };
+  const uploadPlanImage = async (file: File) => {
+    setPlanUploadError("");
+    const extension = file.name.split(".").pop()?.toLocaleLowerCase();
+    const supported = ["image/jpeg", "image/png", "image/webp"].includes(file.type) || ["jpg", "jpeg", "png", "webp"].includes(extension ?? "");
+    if (!supported) { setPlanUploadError("Поддерживаются фото JPG, PNG и WebP."); return; }
+    if (file.size > 10 * 1024 * 1024) { setPlanUploadError("Размер фото не должен превышать 10 МБ."); return; }
+    if (!activeFloorRecord) { setPlanUploadError("Этаж ещё не синхронизирован с backend. Обновите страницу и повторите."); return; }
+    const formData = new FormData();
+    formData.append("image", file);
+    setUploadingPlan(true);
+    try {
+      const result = await apiFetch<PlanImportResult>(`/floors/${encodeURIComponent(activeFloorRecord.id)}/plan/import-image`, { method: "POST", body: formData });
+      applyPlanImportResult(result, `${result.planFileName}: фото загружено как подложка. Для автоматической разметки нажмите «Запустить AI-разметку».`);
+    } catch (error) {
+      setPlanUploadError(error instanceof Error ? error.message : "Не удалось обработать фото плана");
+    } finally {
+      setUploadingPlan(false);
+      if (imageInputRef.current) imageInputRef.current.value = "";
+    }
+  };
+  const analyzeCurrentImage = async () => {
+    setPlanUploadError("");
+    if (!activeFloorRecord || planAssetTypes[floor] !== "image") {
+      setPlanUploadError("Сначала загрузите фото плана для выбранного этажа.");
+      return;
+    }
+    setUploadingPlan(true);
+    setAiRunning(true);
+    setAiProgress(6);
+    setAiElapsed(0);
+    try {
+      const result = await apiFetch<PlanImportResult>(`/floors/${encodeURIComponent(activeFloorRecord.id)}/plan/analyze-image`, { method: "POST" });
+      const analysis = result.aiAnalysis;
+      setAiProgress(100);
+      if (analysis?.status === "completed") {
+        applyPlanImportResult(result, `AI-разметка готова: ${analysis.generatedElements} объектов и ${analysis.generatedZones} зон`);
+      } else {
+        setPlanAiAnalysis((current) => analysis ? { ...current, [floor]: analysis } : current);
+        setPlanUploadError(analysis?.reason || analysis?.summary || "AI не смог завершить разметку. Повторите попытку.");
+      }
+    } catch (error) {
+      setPlanUploadError(error instanceof Error ? error.message : "Не удалось запустить AI-разметку");
+    } finally {
+      setAiRunning(false);
+      setUploadingPlan(false);
+    }
+  };
+  const startManualPlan = async () => {
+    setPlanUploadError("");
+    if (!activeFloorRecord) { setPlanUploadError("Этаж ещё не синхронизирован с backend. Обновите страницу и повторите."); return; }
+    setUploadingPlan(true);
+    try {
+      const result = await apiFetch<PlanImportResult>(`/floors/${encodeURIComponent(activeFloorRecord.id)}/plan/manual`, { method: "POST" });
+      applyPlanImportResult(result, `Ручной план ${floor} этажа открыт — добавляйте объекты на панели редактора`);
+    } catch (error) {
+      setPlanUploadError(error instanceof Error ? error.message : "Не удалось открыть ручной план");
+    } finally {
+      setUploadingPlan(false);
     }
   };
   const configuredCameraIds = (location.configuredCameras ?? []).map((camera) => camera.id);
@@ -1020,15 +1216,23 @@ export function FloorPlanManager({ notify, location, go, onLocationUpdate }: { n
   const sameFloorCameraIds = allCameraIds.filter((camera) => cameraFloorMap.get(camera)?.startsWith(floor));
   const availableCameras = sameFloorCameraIds.filter((camera) => !zone.cameras.includes(camera));
   const cameraIsOffline = (cameraId: string) => location.configuredCameras?.find((camera) => camera.id === cameraId)?.status === "offline" || (!location.configuredCameras?.some((camera) => camera.id === cameraId) && allCameraIds.indexOf(cameraId) >= location.online);
+  const selectedFloorType = FLOOR_SPACE_TYPES.find((item) => item.value === floorForm.spaceType) ?? FLOOR_SPACE_TYPES[0];
   return (
     <>
       <section className="sys-floor-toolbar">
         <div className="sys-segmented">
-          {Array.from({ length: floorCount }).map((_, index) => {
-            const value = String(index + 1);
-            return <button className={floor === value ? "active" : ""} onClick={() => { setFloor(value); setSelected(value === "1" ? "hall" : customZones.find((item) => item.floor === value)?.id ?? ""); setEditingBounds(false); }} key={value}>{value} этаж</button>;
+          {sortedFloorRecords.map((record) => {
+            const value = String(record.level);
+            const active = floor === value;
+            const typeLabel = FLOOR_SPACE_TYPES.find((item) => item.value === record.spaceType)?.label ?? "Этаж внутри здания";
+            return (
+              <div className={`sys-floor-tab${active ? " active" : ""}`} key={record.id} title={`${record.name} · ${typeLabel}`}>
+                <button className={active ? "active" : ""} onClick={() => { setFloor(value); setSelected(customZones.find((item) => item.floor === value)?.id ?? ""); setEditingBounds(false); }}>{record.name}</button>
+                {active && <button className="sys-floor-delete-trigger" disabled={uploadingPlan} onClick={() => requestDeleteFloor(record)} aria-label={`Удалить ${record.name}`} title={`Удалить ${record.name}`}><Trash2 /></button>}
+              </div>
+            );
           })}
-          <button onClick={() => void addFloor()}><Plus /> Этаж</button>
+          <button onClick={openAddFloor} aria-label="Добавить этаж через форму"><Plus /> Этаж</button>
         </div>
         <div className="sys-layer-switcher">
           {[["plan", Layers3, "План"], ["coverage", Camera, "Покрытие"], ["traffic", Activity, "Трафик"]].map(([key, Icon, label]: any) => (
@@ -1048,18 +1252,47 @@ export function FloorPlanManager({ notify, location, go, onLocationUpdate }: { n
               if (file) void uploadPlan(file);
             }}
           />
-          {planPdfUrls[floor] && <a className="secondary" href={planPdfUrls[floor]} target="_blank" rel="noreferrer"><Layers3 /> Оригинал PDF</a>}
-          <button className="secondary" disabled={uploadingPlan} onClick={() => planInputRef.current?.click()}><Upload /> {planReady.includes(floor) ? "Заменить PDF" : "Загрузить PDF"}</button>
+          <input
+            ref={imageInputRef}
+            className="sys-hidden-input"
+            type="file"
+            accept="image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp"
+            aria-label="Загрузить фото плана этажа"
+            value=""
+            onChange={(event) => {
+              const file = event.target.files?.[0];
+              if (file) void uploadPlanImage(file);
+            }}
+          />
+          {planAssetUrls[floor] && <a className="secondary" href={planAssetUrls[floor]} target="_blank" rel="noreferrer">{planAssetTypes[floor] === "image" ? <ImagePlus /> : <Layers3 />} {planAssetTypes[floor] === "image" ? "Открыть фото" : "Оригинал PDF"}</a>}
+          {planAssetTypes[floor] === "image" && (
+            <button className={`secondary sys-ai-run-button${aiRunning ? " is-running" : ""}`} disabled={uploadingPlan} onClick={() => void analyzeCurrentImage()}>
+              <Sparkles /> {aiRunning ? `AI работает · ${aiProgress}%` : "Запустить AI-разметку"}
+            </button>
+          )}
+          <button className="secondary" disabled={uploadingPlan} onClick={() => planInputRef.current?.click()}><Upload /> PDF</button>
+          <button className="secondary" disabled={uploadingPlan} onClick={() => imageInputRef.current?.click()}><ImagePlus /> Загрузить фото</button>
+          <button className="secondary" onClick={() => setZonePanelVisible((value) => !value)}>{zonePanelVisible ? <PanelRightClose /> : <PanelRightOpen />} {zonePanelVisible ? "Скрыть зоны" : "Показать зоны"}</button>
           <button className="primary" onClick={() => planReady.includes(floor) ? setAddZone(true) : notify(`Нельзя создать зону: сначала загрузите план ${floor} этажа`)}><Plus /> Создать зону</button>
         </div>
       </section>
 
-      <section className="sys-floor-layout">
+      <section className={`sys-floor-layout${zonePanelVisible ? "" : " zone-panel-hidden"}`}>
         <article className="card sys-floor-canvas-card">
           <div className="card-head">
             <div><span>{location.name.toUpperCase()} · {floor} ЭТАЖ · {location.zones} ЗОН</span><h2>План, зоны и покрытие камер</h2></div>
             <div className="sys-canvas-legend"><span><i className="good" /> покрыто</span><span><i className="warn" /> проверить</span><span><i className="camera" /> камера</span></div>
           </div>
+          {aiRunning && (
+            <div className="sys-ai-progress" role="status" aria-live="polite">
+              <div className="sys-ai-progress-head">
+                <span><i><Sparkles /></i><span><strong>AI создаёт план</strong><small>{aiProgress < 20 ? "Подготавливаем изображение" : aiProgress < 45 ? "Ищем помещения, стены и входы" : aiProgress < 75 ? "Распознаём мебель, камеры и подписи" : "Проверяем координаты объектов"}</small></span></span>
+                <b>{aiProgress}%</b>
+              </div>
+              <div className="sys-ai-progress-track"><i style={{ width: `${aiProgress}%` }} /></div>
+              <footer><span>gpt-5.6 анализирует фото и собирает черновик</span><time>{aiElapsed} сек</time></footer>
+            </div>
+          )}
           {planReady.includes(floor) ? (
             <div className={`sys-floor-canvas has-editor layer-${layer}`}>
               <PlanCanvas
@@ -1068,10 +1301,22 @@ export function FloorPlanManager({ notify, location, go, onLocationUpdate }: { n
                 zones={visibleZones}
                 selectedZoneId={selected}
                 onSelectZone={setSelected}
+                onDeleteZones={deletePlanZones}
                 onElementsChange={setPlanElements}
                 onCommit={commitPlanElements}
                 planFileName={planFileNames[floor]}
+                planSource={planAssetTypes[floor] ?? "manual"}
+                backgroundImageUrl={planAssetTypes[floor] === "image" ? planAssetUrls[floor] : undefined}
               />
+              {planAiAnalysis[floor] && (
+                <div className={`sys-plan-ai-status is-${planAiAnalysis[floor].status}`} role="status">
+                  <Sparkles />
+                  <p>
+                    <strong>{planAiAnalysis[floor].status === "completed" ? "AI-разметка готова" : planAiAnalysis[floor].status === "skipped" ? "Фото загружено без AI" : "AI не смог завершить разметку"}</strong>
+                    <span>{planAiAnalysis[floor].summary}{planAiAnalysis[floor].status === "skipped" ? " Добавьте OPENAI_API_KEY в .env и снова нажмите «Запустить AI-разметку»." : ""}</span>
+                  </p>
+                </div>
+              )}
             </div>
           ) : (
             <div className="sys-floor-canvas">
@@ -1079,10 +1324,11 @@ export function FloorPlanManager({ notify, location, go, onLocationUpdate }: { n
               <div className="sys-empty-floor">
                 <Layers3 />
                 <h3>План {floor} этажа не загружен</h3>
-                <p>Загрузите PDF — система прочитает подписи и автоматически расставит базовые стены, двери, столы и камеры.</p>
+                <p>Загрузите PDF или фото JPG/PNG/WebP как подложку либо откройте пустой канвас и соберите план вручную. AI запускается отдельно.</p>
                 <div className="sys-empty-floor-actions">
-                  <button className="primary" disabled={uploadingPlan} onClick={() => planInputRef.current?.click()}><Upload /> {uploadingPlan ? "Анализируем…" : "Загрузить PDF"}</button>
-                  <button className="secondary" onClick={() => { const nextPlans = [...planReady, floor]; const demoName = `demo-floor-${floor}.pdf`; const nextNames = { ...planFileNames, [floor]: demoName }; const updated = { ...location, planFloors: nextPlans, planElements, planFileNames: nextNames, readiness: Math.min(99, location.readiness + 12) }; setPlanReady(nextPlans); setPlanFileNames(nextNames); onLocationUpdate(updated); notify(`${demoName} загружен · можно добавлять и перемещать объекты`, { location: updated }); }}>Использовать demo-план</button>
+                  <button className="primary" disabled={uploadingPlan} onClick={() => planInputRef.current?.click()}><Upload /> {uploadingPlan ? "Обрабатываем…" : "Загрузить PDF"}</button>
+                  <button className="secondary" disabled={uploadingPlan} onClick={() => imageInputRef.current?.click()}><ImagePlus /> Загрузить фото</button>
+                  <button className="secondary" disabled={uploadingPlan} onClick={() => void startManualPlan()}><MousePointer2 /> Собрать вручную</button>
                 </div>
                 {planUploadError && <div className="sys-form-error" role="alert"><AlertTriangle />{planUploadError}</div>}
               </div>
@@ -1095,7 +1341,7 @@ export function FloorPlanManager({ notify, location, go, onLocationUpdate }: { n
           </footer>
         </article>
 
-        <aside className="sys-zone-panel">
+        {zonePanelVisible && <aside className="sys-zone-panel">
           <article className="card">
             <div className="card-head">
               <div><span>ВЫБРАННАЯ ЗОНА</span><h2>{zone.name}</h2></div>
@@ -1120,9 +1366,45 @@ export function FloorPlanManager({ notify, location, go, onLocationUpdate }: { n
           <article className="card sys-coverage-tip">
             <Sparkles /><p><strong>AI-рекомендация</strong><span>{zone.cameras.length === 0 ? `Зона «${zone.name}» не покрыта. Добавьте камеру и выполните калибровку.` : zone.coverage < 75 ? `${zone.name} покрыта на ${zone.coverage}%. Восстановите ${zone.cameras[0]} или добавьте второй ракурс.` : `${zone.name}: покрытие ${zone.coverage}%. Перекрытие обзора и calibration drift не обнаружены.`}</span></p>
           </article>
-        </aside>
+        </aside>}
       </section>
 
+      {addFloorOpen && (
+        <div className="sys-overlay" onMouseDown={() => { if (!creatingFloor) setAddFloorOpen(false); }}>
+          <div className="sys-modal compact" role="dialog" aria-modal="true" aria-labelledby="create-floor-title" onMouseDown={(event) => event.stopPropagation()}>
+            <button className="sys-close" disabled={creatingFloor} onClick={() => setAddFloorOpen(false)} aria-label="Закрыть"><X /></button>
+            <span className="sys-kicker"><Layers3 /> СТРУКТУРА ЛОКАЦИИ</span>
+            <h2 id="create-floor-title">Добавить пространство</h2>
+            <p>Укажите, что это: этаж, отдельный зал, улица или терраса. У каждого пространства будет собственный план, зоны и объекты.</p>
+            <div className="sys-floor-create-summary">
+              <span>Порядковый номер<strong>{nextFloorLevel}</strong></span>
+              <span>Локация<strong>{location.name}</strong></span>
+            </div>
+            <div className="sys-form-grid">
+              <label className="wide">Тип пространства *<select required value={floorForm.spaceType} onChange={(event) => { const spaceType = event.target.value as FloorSpaceType; const option = FLOOR_SPACE_TYPES.find((item) => item.value === spaceType); setFloorForm((current) => ({ ...current, spaceType, name: current.name || option?.example || "" })); }}>{FLOOR_SPACE_TYPES.map((item) => <option value={item.value} key={item.value}>{item.label}</option>)}</select></label>
+              <label className="wide">Название вкладки *<input required minLength={3} maxLength={100} placeholder={`Например: ${floorForm.spaceType === "building-floor" ? `${nextFloorLevel} этаж` : selectedFloorType.example}`} value={floorForm.name} onChange={(event) => setFloorForm((current) => ({ ...current, name: event.target.value }))} /><small>Это название будет показано в переключателе над планом: «Улица», «2 зал», «2 этаж» и т. п.</small></label>
+              <label className="wide">Назначение *<select required value={floorForm.purpose} onChange={(event) => setFloorForm((current) => ({ ...current, purpose: event.target.value }))}><option>Гостевая зона</option><option>Обеденный зал</option><option>Бар / очередь</option><option>Кухня</option><option>Входная группа</option><option>Технический / служебный</option><option>Офис / склад</option><option>Другое</option></select></label>
+            </div>
+            <div className="sys-guidance"><Info />Это будет отдельная вкладка плана. Удаление вкладки также удалит её зоны, подложку и размещённые объекты.</div>
+            <label className="sys-floor-confirm"><input type="checkbox" checked={floorForm.confirmed} onChange={(event) => setFloorForm((current) => ({ ...current, confirmed: event.target.checked }))} /><span><strong>Подтверждаю добавление отдельного пространства</strong><small>Это не зона внутри текущего плана и не дубликат существующей вкладки.</small></span></label>
+            {floorError && <div className="sys-form-error" role="alert"><AlertTriangle />{floorError}</div>}
+            <div className="sys-modal-actions"><button className="secondary" disabled={creatingFloor} onClick={() => setAddFloorOpen(false)}>Отмена</button><button className="primary" disabled={creatingFloor || floorForm.name.trim().length < 3 || !floorForm.confirmed} onClick={() => void addFloor()}>{creatingFloor ? "Создаём…" : "Создать этаж"}</button></div>
+          </div>
+        </div>
+      )}
+      {deleteFloorTarget && (
+        <div className="sys-overlay" onMouseDown={() => { if (!deletingFloor) setDeleteFloorTarget(null); }}>
+          <div className="sys-modal compact" role="alertdialog" aria-modal="true" aria-labelledby="delete-floor-title" onMouseDown={(event) => event.stopPropagation()}>
+            <button className="sys-close" disabled={deletingFloor} onClick={() => setDeleteFloorTarget(null)} aria-label="Закрыть"><X /></button>
+            <span className="sys-kicker danger"><Trash2 /> УДАЛЕНИЕ ПРОСТРАНСТВА</span>
+            <h2 id="delete-floor-title">Удалить «{deleteFloorTarget.name}»?</h2>
+            <p>Действие необратимо. Вместе с вкладкой будут удалены загруженный план, {customZones.filter((item) => item.floor === String(deleteFloorTarget.level)).length} зон и {planElements.filter((item) => item.floor === String(deleteFloorTarget.level)).length} объектов.</p>
+            {sortedFloorRecords.length === 1 && <div className="sys-guidance danger"><AlertTriangle />Это последнее пространство — после удаления локация останется без планов.</div>}
+            {deleteFloorError && <div className="sys-form-error" role="alert"><AlertTriangle />{deleteFloorError}</div>}
+            <div className="sys-modal-actions"><button className="secondary" disabled={deletingFloor} onClick={() => setDeleteFloorTarget(null)}>Отмена</button><button className="sys-danger-button" disabled={deletingFloor} onClick={() => void deleteFloor()}>{deletingFloor ? "Удаляем…" : "Удалить пространство"}</button></div>
+          </div>
+        </div>
+      )}
       {addZone && (
         <div className="sys-overlay" onMouseDown={() => setAddZone(false)}>
           <div className="sys-modal compact" role="dialog" aria-modal="true" aria-labelledby="create-zone-title" onMouseDown={(event) => event.stopPropagation()}>

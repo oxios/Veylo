@@ -48,6 +48,8 @@ services:
       SEED_OWNER_NAME: ${SEED_OWNER_NAME:-VenueFlow Owner}
       SEED_OWNER_EMAIL: ${SEED_OWNER_EMAIL:?Set SEED_OWNER_EMAIL in .env}
       SEED_OWNER_PASSWORD: ${SEED_OWNER_PASSWORD:?Set SEED_OWNER_PASSWORD in .env}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_PLAN_MODEL: ${OPENAI_PLAN_MODEL:-gpt-5.6}
     ports:
       - "127.0.0.1:4000:4000"
     depends_on:

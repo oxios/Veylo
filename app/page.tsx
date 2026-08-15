@@ -37,6 +37,8 @@ import {
   MoreHorizontal,
   MousePointerClick,
   PackageCheck,
+  PanelLeftClose,
+  PanelLeftOpen,
   Play,
   QrCode,
   Search,
@@ -77,6 +79,7 @@ import {
   FloorPlanManager,
   LocationsManager,
   SetupCenter,
+  emptyVenueLocation,
   spatialZonesFor,
   type VenueLocation,
   venueLocations,
@@ -2396,15 +2399,30 @@ function Generic({ type, toast, location, onLocationUpdate }: any) {
   );
 }
 
+function NoLocationState({ onAdd }: { onAdd: () => void }) {
+  return (
+    <section className="no-location-state">
+      <article className="card">
+        <i><Store /></i>
+        <span>VENUEFLOW · ЛОКАЦИИ</span>
+        <h1>Нет активной локации</h1>
+        <p>Все прежние локации удалены. Добавьте новое заведение, чтобы перейти к этажам, зонам и плану.</p>
+        <button className="primary" onClick={onAdd}>Добавить локацию <ArrowRight /></button>
+      </article>
+    </section>
+  );
+}
+
 function VenueFlowDashboard() {
   const { user, logout } = useAuth();
   const pathname = usePathname();
   const router = useRouter();
   const [page, setPage] = useState<Key>(() => pageFromPath(pathname) ?? "overview"),
     [locations, setLocations] = useState<VenueLocation[]>(venueLocations),
-    [location, setLocation] = useState<VenueLocation>(venueLocations[0]),
+    [location, setLocation] = useState<VenueLocation>(emptyVenueLocation),
     [locationMenu, setLocationMenu] = useState(false),
     [mobile, setMobile] = useState(false),
+    [sidebarHidden, setSidebarHidden] = useState(() => pageFromPath(pathname) === "floorplan"),
     [aiOpen, setAiOpen] = useState(false),
     [dateRange, setDateRange] = useState("Сегодня"),
     [dateMenu, setDateMenu] = useState(false),
@@ -2419,6 +2437,7 @@ function VenueFlowDashboard() {
   const goToPage = (nextPage: Key | string) => {
     const targetPage = nextPage as Key;
     setPage(targetPage);
+    if (targetPage === "floorplan") setSidebarHidden(true);
     setDevelopmentNoticeOpen(true);
     router.push(pathForPage(targetPage));
   };
@@ -2449,11 +2468,9 @@ function VenueFlowDashboard() {
     let active = true;
     apiFetch<{ locations: VenueLocation[] }>("/locations")
       .then(({ locations: savedLocations }) => {
-        if (!active || savedLocations.length === 0) return;
-        const savedIds = new Set(savedLocations.map((item) => item.id));
-        const mergedLocations = [...venueLocations.filter((item) => !savedIds.has(item.id)), ...savedLocations];
-        setLocations(mergedLocations);
-        setLocation((current) => savedLocations.find((item) => item.id === current.id) ?? current);
+        if (!active) return;
+        setLocations(savedLocations);
+        setLocation((current) => savedLocations.find((item) => item.id === current.id) ?? savedLocations[0] ?? emptyVenueLocation);
       })
       .catch(() => setToast("Не удалось загрузить сохранённые локации"));
     return () => { active = false; };
@@ -2484,9 +2501,11 @@ function VenueFlowDashboard() {
       planElements: saved.planElements ?? current.planElements,
       planFileNames: saved.planFileNames ?? current.planFileNames,
       planPdfUrls: saved.planPdfUrls ?? current.planPdfUrls,
+      planAssetUrls: saved.planAssetUrls ?? current.planAssetUrls,
+      planAssetTypes: saved.planAssetTypes ?? current.planAssetTypes,
       customZones: saved.customZones ?? current.customZones,
     });
-    setLocation((current) => current.id === saved.id ? mergeLocation(current) : current);
+    setLocation((current) => !current.id || current.id === saved.id ? mergeLocation(current) : current);
     setLocations((current) => current.some((item) => item.id === saved.id)
       ? current.map((item) => item.id === saved.id ? mergeLocation(item) : item)
       : [...current, saved]);
@@ -2505,6 +2524,7 @@ function VenueFlowDashboard() {
   };
   const changeDateRange = (period: string) => { setDateRange(period); setDateMenu(false); notify(`Период изменён: ${period}`, { period }); };
   const content = (() => {
+    if (locations.length === 0 && page !== "locations") return <NoLocationState onAdd={() => goToPage("locations")} />;
     switch (page) {
       case "overview":
         return <Overview go={goToPage} open={() => setModal(true)} location={location} />;
@@ -2594,7 +2614,7 @@ function VenueFlowDashboard() {
   const cameraNeedsAttention = cameraProblemCount > 0;
   const alertCount = alertRowsForLocation(location).filter((item) => item[1] !== "Критических событий нет").length;
   return (
-    <div className="shell">
+    <div className={`shell${sidebarHidden ? " sidebar-hidden" : ""}`}>
       <aside className={`sidebar ${mobile ? "open" : ""}`}>
         <div className="brand">
           <i>VF</i>
@@ -2680,8 +2700,11 @@ function VenueFlowDashboard() {
         </footer>
       </aside>
       {mobile && <button className="scrim" aria-label="Закрыть боковое меню" onClick={() => setMobile(false)} />}
-      <main>
+      <main className={page === "floorplan" ? "floorplan-main" : ""}>
         <header>
+          <button className="desktop-sidebar-toggle" aria-label={sidebarHidden ? "Показать боковое меню" : "Скрыть боковое меню"} title={sidebarHidden ? "Показать меню" : "Скрыть меню"} onClick={() => setSidebarHidden((value) => !value)}>
+            {sidebarHidden ? <PanelLeftOpen /> : <PanelLeftClose />}
+          </button>
           <button className="burger" aria-label="Открыть боковое меню" onClick={() => setMobile(true)}>
             <Menu />
           </button>

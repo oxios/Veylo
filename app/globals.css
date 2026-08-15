@@ -39,6 +39,7 @@ body {
   z-index: 20;
   display: flex;
   flex-direction: column;
+  transition: transform .22s ease;
 }
 .brand {
   height: 72px;
@@ -235,6 +236,7 @@ nav button em {
 main {
   margin-left: 248px;
   min-height: 100vh;
+  transition: margin-left .22s ease;
 }
 main > header {
   height: 72px;
@@ -321,10 +323,33 @@ main > header {
 .burger {
   display: none;
 }
+.desktop-sidebar-toggle {
+  display: grid;
+  width: 34px;
+  height: 34px;
+  margin-right: 12px;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: #fff;
+  color: #65736c;
+  cursor: pointer;
+  place-items: center;
+}
+.desktop-sidebar-toggle:hover { border-color: #9fd8c4; background: #eef9f5; color: #13795c; }
+.desktop-sidebar-toggle svg { width: 17px; }
 .content {
   padding: 26px 30px 50px;
   max-width: 1600px;
   margin: auto;
+}
+.floorplan-main .content {
+  max-width: none;
+  padding: 16px 18px 36px;
+}
+@media (min-width: 801px) {
+  .shell.sidebar-hidden .sidebar { transform: translateX(-100%); }
+  .shell.sidebar-hidden > main { margin-left: 0; }
 }
 .pagehead {
   display: flex;
@@ -2694,6 +2719,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
     background: transparent;
     margin-right: 8px;
   }
+  .desktop-sidebar-toggle { display: none; }
   .burger svg {
     width: 20px;
   }

@@ -42,4 +42,6 @@ module.exports = Object.freeze({
     ? isProduction
     : process.env.COOKIE_SECURE === "true",
   corsOrigins,
+  openAiApiKey: process.env.OPENAI_API_KEY || "",
+  openAiPlanModel: process.env.OPENAI_PLAN_MODEL || "gpt-5.6",
 });
