@@ -56,11 +56,14 @@ export type PlanElement = {
   viewAngle?: number;
   viewRadius?: number;
   viewEnabled?: boolean;
+  seats?: number;
+  zoneId?: string | null;
 };
 
 export type PlanCanvasZone = {
   id: string;
   name: string;
+  type?: string;
   left: number;
   top: number;
   width: number;
@@ -76,11 +79,16 @@ export type PlanCanvasProps = {
   selectedZoneId: string;
   onSelectZone: (id: string) => void;
   onDeleteZones?: (ids: string[]) => void | Promise<void>;
+  onCreateZone?: () => void;
+  onZonesChange?: (next: PlanCanvasZone[]) => void;
+  onCommitZones?: (next: PlanCanvasZone[]) => void | Promise<void>;
   onElementsChange: (next: PlanElement[]) => void;
   onCommit: (next: PlanElement[]) => void;
   planFileName?: string;
   backgroundImageUrl?: string;
   planSource?: "pdf" | "image" | "manual";
+  backgroundMode?: "floor-plan" | "camera-view";
+  readOnly?: boolean;
 };
 
 type ElementKind = PlanElement["kind"];
@@ -96,6 +104,7 @@ type LibraryItem = {
   height: number;
   shape: ElementShape;
   color: string;
+  seats?: number;
 };
 
 type DragState = {
@@ -109,6 +118,16 @@ type DragState = {
   startY: number;
   startWidth: number;
   startHeight: number;
+  moved: boolean;
+};
+
+type ZoneDragState = {
+  id: string;
+  origins: Record<string, { left: number; top: number; width: number; height: number }>;
+  pointerId: number;
+  mode: "move" | "resize";
+  startClientX: number;
+  startClientY: number;
   moved: boolean;
 };
 
@@ -126,10 +145,10 @@ const LIBRARY: LibraryItem[] = [
   { id: "short-wall", group: "Конструкция", kind: "wall", label: "Перегородка", hint: "Короткая стена", width: 13, height: 1.5, shape: "line", color: "#6c7772" },
   { id: "door", group: "Конструкция", kind: "door", label: "Дверь", hint: "Обычный проём", width: 8, height: 3, shape: "icon", color: "#a86c2f" },
   { id: "wide-door", group: "Конструкция", kind: "door", label: "Широкий вход", hint: "Двойной проём", width: 13, height: 3, shape: "icon", color: "#a86c2f" },
-  { id: "round-table", group: "Мебель", kind: "table", label: "Круглый стол", hint: "2–4 места", width: 6.5, height: 8, shape: "round", color: "#a97832" },
-  { id: "square-table", group: "Мебель", kind: "table", label: "Стол", hint: "4 места", width: 7, height: 8, shape: "rectangle", color: "#8d672f" },
-  { id: "long-table", group: "Мебель", kind: "table", label: "Большой стол", hint: "6–10 мест", width: 14, height: 7, shape: "rectangle", color: "#8d672f" },
-  { id: "bar-counter", group: "Мебель", kind: "table", label: "Барная стойка", hint: "Линейная", width: 20, height: 5, shape: "rectangle", color: "#6f5837" },
+  { id: "round-table", group: "Мебель", kind: "table", label: "Круглый стол", hint: "4 места", width: 6.5, height: 8, shape: "round", color: "#a97832", seats: 4 },
+  { id: "square-table", group: "Мебель", kind: "table", label: "Стол", hint: "4 места", width: 7, height: 8, shape: "rectangle", color: "#8d672f", seats: 4 },
+  { id: "long-table", group: "Мебель", kind: "table", label: "Большой стол", hint: "8 мест", width: 14, height: 7, shape: "rectangle", color: "#8d672f", seats: 8 },
+  { id: "bar-counter", group: "Мебель", kind: "table", label: "Барная стойка", hint: "6 мест", width: 20, height: 5, shape: "rectangle", color: "#6f5837", seats: 6 },
   { id: "camera", group: "Обозначения", kind: "camera", label: "Камера", hint: "Точка установки", width: 5, height: 7, shape: "icon", color: "#2e88b3" },
   { id: "label", group: "Обозначения", kind: "label", label: "Подпись", hint: "Название зоны", width: 15, height: 6, shape: "rectangle", color: "#3d5048" },
   { id: "exit", group: "Обозначения", kind: "label", label: "Выход", hint: "Навигация", width: 11, height: 5, shape: "rectangle", color: "#1d8060" },
@@ -170,6 +189,13 @@ function makeId(kind: ElementKind) {
   return `${kind}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
+function tableSeatCount(item: Pick<PlanElement, "kind" | "width" | "label" | "seats">) {
+  if (item.kind !== "table") return 0;
+  if (Number.isFinite(item.seats) && Number(item.seats) > 0) return Math.round(Number(item.seats));
+  if (/барн|bar/i.test(item.label)) return 6;
+  return item.width >= 12 ? 8 : 4;
+}
+
 function cameraViewPath(item: PlanElement) {
   const centerX = item.x + item.width / 2;
   const centerY = item.y + item.height / 2;
@@ -185,6 +211,13 @@ function cameraViewPath(item: PlanElement) {
   return `M ${centerX} ${centerY} L ${startX} ${startY} A ${radius} ${radius} 0 0 1 ${endX} ${endY} Z`;
 }
 
+function cameraZoneFor(item: PlanElement, zones: PlanCanvasZone[]) {
+  if (item.kind !== "camera") return null;
+  const centerX = item.x + item.width / 2;
+  const centerY = item.y + item.height / 2;
+  return zones.find((zone) => centerX >= zone.left && centerX <= zone.left + zone.width && centerY >= zone.top && centerY <= zone.top + zone.height) ?? null;
+}
+
 export default function PlanCanvas({
   floor,
   elements,
@@ -192,16 +225,24 @@ export default function PlanCanvas({
   selectedZoneId,
   onSelectZone,
   onDeleteZones,
+  onCreateZone,
+  onZonesChange,
+  onCommitZones,
   onElementsChange,
   onCommit,
   planFileName,
   backgroundImageUrl,
   planSource,
+  backgroundMode = "floor-plan",
+  readOnly = false,
 }: PlanCanvasProps) {
   const boardRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
   const elementsRef = useRef(elements);
+  const zonesRef = useRef(zones);
   const interactionRef = useRef<DragState | null>(null);
+  const zoneInteractionRef = useRef<ZoneDragState | null>(null);
+  const suppressZoneClickRef = useRef(false);
   const selectionRef = useRef<SelectionBox | null>(null);
   const clipboardRef = useRef<PlanElement[]>([]);
   const undoRef = useRef<PlanElement[][]>([]);
@@ -209,6 +250,7 @@ export default function PlanCanvas({
   const propertyEditingRef = useRef(false);
   const [selectedElementIds, setSelectedElementIds] = useState<string[]>([]);
   const [selectedZoneIds, setSelectedZoneIds] = useState<string[]>(() => selectedZoneId ? [selectedZoneId] : []);
+  const [canvasZones, setCanvasZones] = useState<PlanCanvasZone[]>(zones);
   const [selectionBox, setSelectionBox] = useState<SelectionBox | null>(null);
   const [zoom, setZoom] = useState(100);
   const [snapToGrid, setSnapToGrid] = useState(true);
@@ -216,6 +258,7 @@ export default function PlanCanvas({
   const [cameraViewsVisible, setCameraViewsVisible] = useState(true);
   const [photoVisible, setPhotoVisible] = useState(true);
   const [libraryVisible, setLibraryVisible] = useState(true);
+  const [libraryTab, setLibraryTab] = useState<"objects" | "zones">("objects");
   const [inspectorVisible, setInspectorVisible] = useState(false);
   const [fullScreen, setFullScreen] = useState(false);
   const [historyState, setHistoryState] = useState({ undo: 0, redo: 0 });
@@ -226,10 +269,20 @@ export default function PlanCanvas({
   const selectedElementId = selectedElementIds.at(-1) ?? null;
   const effectiveSelectedZoneIds = selectedZoneIds.length ? selectedZoneIds : selectedZoneId ? [selectedZoneId] : [];
   const selectedElement = elements.find((item) => item.id === selectedElementId && item.floor === floor) ?? null;
+  const selectedPlanZone = canvasZones.find((item) => item.id === effectiveSelectedZoneIds.at(-1)) ?? null;
+  const selectedCameraZone = selectedElement?.kind === "camera"
+    ? cameraZoneFor(selectedElement, canvasZones)
+    : null;
 
   useEffect(() => {
     elementsRef.current = elements;
   }, [elements]);
+
+  useEffect(() => {
+    if (zoneInteractionRef.current) return;
+    zonesRef.current = zones;
+    setCanvasZones(zones);
+  }, [zones]);
 
   useEffect(() => {
     const stage = boardRef.current;
@@ -252,12 +305,53 @@ export default function PlanCanvas({
   const quantize = (value: number) => snapToGrid ? Math.round(value * 2) / 2 : rounded(value);
 
   const publish = (next: PlanElement[], commit = false) => {
-    elementsRef.current = next;
-    onElementsChange(next);
+    const withCameraZones = next.map((item) => item.floor === floor && item.kind === "camera"
+      ? { ...item, zoneId: cameraZoneFor(item, canvasZones)?.id ?? null }
+      : item);
+    elementsRef.current = withCameraZones;
+    onElementsChange(withCameraZones);
     if (commit) {
-      onCommit(next);
+      onCommit(withCameraZones);
       setSavedAt(new Date());
     }
+  };
+
+  const publishZones = (next: PlanCanvasZone[], commit = false) => {
+    zonesRef.current = next;
+    setCanvasZones(next);
+    if (commit) {
+      onZonesChange?.(next);
+      void onCommitZones?.(next);
+      setSavedAt(new Date());
+    }
+  };
+
+  const updateSelectedZone = (patch: Partial<PlanCanvasZone>, commit = false) => {
+    if (!selectedPlanZone) return;
+    const next = zonesRef.current.map((item) => item.id === selectedPlanZone.id ? { ...item, ...patch } : item);
+    publishZones(next, commit);
+  };
+
+  const commitSelectedZone = () => {
+    if (!selectedPlanZone) return;
+    const next = zonesRef.current.map((item) => item.id === selectedPlanZone.id ? {
+      ...item,
+      name: item.name.trim() || "Новая зона",
+      type: item.type?.trim() || "Dining",
+      capacity: Math.max(0, Math.round(item.capacity)),
+    } : item);
+    publishZones(next, true);
+  };
+
+  const zoneNumericPatch = (field: "left" | "top" | "width" | "height" | "capacity", rawValue: string) => {
+    if (!selectedPlanZone) return;
+    const value = Number(rawValue);
+    if (!Number.isFinite(value)) return;
+    if (field === "capacity") updateSelectedZone({ capacity: clamp(Math.round(value), 0, 100_000) });
+    if (field === "left") updateSelectedZone({ left: rounded(clamp(value, 0, 100 - selectedPlanZone.width)) });
+    if (field === "top") updateSelectedZone({ top: rounded(clamp(value, 0, 100 - selectedPlanZone.height)) });
+    if (field === "width") updateSelectedZone({ width: rounded(clamp(value, 3, 100 - selectedPlanZone.left)) });
+    if (field === "height") updateSelectedZone({ height: rounded(clamp(value, 3, 100 - selectedPlanZone.top)) });
   };
 
   const pushHistory = () => {
@@ -302,6 +396,7 @@ export default function PlanCanvas({
       color: template.color,
       zIndex: clamp(Math.max(0, ...floorElements.map((item) => item.zIndex ?? 0)) + 1, -10_000, 10_000),
       locked: false,
+      ...(template.kind === "table" ? { seats: template.seats ?? 4 } : {}),
       ...(template.kind === "camera" ? { viewAngle: 70, viewRadius: 28, viewEnabled: true } : {}),
     };
     const next = [...elementsRef.current, nextElement];
@@ -400,7 +495,7 @@ export default function PlanCanvas({
   };
 
   const startInteraction = (event: PointerEvent<HTMLElement>, item: PlanElement, mode: DragState["mode"]) => {
-    if (event.button !== 0 || !contentRef.current || item.locked) return;
+    if (readOnly || event.button !== 0 || !contentRef.current || item.locked) return;
     event.stopPropagation();
     if (event.shiftKey) {
       return;
@@ -517,7 +612,7 @@ export default function PlanCanvas({
         return itemLeft < right && itemRight > left && itemTop < bottom && itemBottom > top;
       };
       const hits = floorElements.filter((item) => intersects(item.x, item.y, item.width, item.height)).map((item) => item.id);
-      const zoneHits = zones.filter((zone) => intersects(zone.left, zone.top, zone.width, zone.height)).map((zone) => zone.id);
+      const zoneHits = canvasZones.filter((zone) => intersects(zone.left, zone.top, zone.width, zone.height)).map((zone) => zone.id);
       setSelectedElementIds((selected) => current.additive ? [...new Set([...selected, ...hits])] : hits);
       setSelectedZoneIds((selected) => current.additive ? [...new Set([...selected, ...zoneHits])] : zoneHits);
       onSelectZone(zoneHits.at(-1) ?? "");
@@ -539,7 +634,76 @@ export default function PlanCanvas({
     }
   };
 
+  const startZoneInteraction = (event: PointerEvent<HTMLElement>, zone: PlanCanvasZone, mode: ZoneDragState["mode"]) => {
+    if (readOnly || event.button !== 0 || !contentRef.current || !onZonesChange) return;
+    event.preventDefault();
+    event.stopPropagation();
+    if (event.shiftKey && mode === "move") return;
+    const activeIds = effectiveSelectedZoneIds.includes(zone.id) ? effectiveSelectedZoneIds : [zone.id];
+    setSelectedElementIds([]);
+    setSelectedZoneIds(activeIds);
+    onSelectZone(zone.id);
+    zoneInteractionRef.current = {
+      id: zone.id,
+      origins: Object.fromEntries(zonesRef.current.filter((candidate) => activeIds.includes(candidate.id)).map((candidate) => [candidate.id, {
+        left: candidate.left,
+        top: candidate.top,
+        width: candidate.width,
+        height: candidate.height,
+      }])),
+      pointerId: event.pointerId,
+      mode,
+      startClientX: event.clientX,
+      startClientY: event.clientY,
+      moved: false,
+    };
+  };
+
+  const moveZoneInteraction = (event: PointerEvent<HTMLElement>) => {
+    const interaction = zoneInteractionRef.current;
+    const content = contentRef.current;
+    if (!interaction || interaction.pointerId !== event.pointerId || !content) return;
+    const rect = content.getBoundingClientRect();
+    if (!rect.width || !rect.height) return;
+    const rawDeltaX = ((event.clientX - interaction.startClientX) / rect.width) * 100;
+    const rawDeltaY = ((event.clientY - interaction.startClientY) / rect.height) * 100;
+    if (Math.abs(rawDeltaX) > 0.08 || Math.abs(rawDeltaY) > 0.08) interaction.moved = true;
+    const origins = Object.values(interaction.origins);
+    const deltaX = interaction.mode === "move"
+      ? clamp(rawDeltaX, Math.max(...origins.map((item) => -item.left)), Math.min(...origins.map((item) => 100 - item.left - item.width)))
+      : rawDeltaX;
+    const deltaY = interaction.mode === "move"
+      ? clamp(rawDeltaY, Math.max(...origins.map((item) => -item.top)), Math.min(...origins.map((item) => 100 - item.top - item.height)))
+      : rawDeltaY;
+    publishZones(zonesRef.current.map((item) => {
+      const origin = interaction.origins[item.id];
+      if (!origin) return item;
+      if (interaction.mode === "resize") {
+        if (item.id !== interaction.id) return item;
+        return {
+          ...item,
+          width: quantize(clamp(origin.width + deltaX, 3, 100 - origin.left)),
+          height: quantize(clamp(origin.height + deltaY, 3, 100 - origin.top)),
+        };
+      }
+      return {
+        ...item,
+        left: quantize(origin.left + deltaX),
+        top: quantize(origin.top + deltaY),
+      };
+    }));
+  };
+
+  const finishZoneInteraction = (event: PointerEvent<HTMLElement>) => {
+    const interaction = zoneInteractionRef.current;
+    if (!interaction || interaction.pointerId !== event.pointerId) return;
+    zoneInteractionRef.current = null;
+    suppressZoneClickRef.current = interaction.moved;
+    if (interaction.moved) publishZones(zonesRef.current, true);
+  };
+
   const handleEditorKeyDown = (event: KeyboardEvent<HTMLElement>) => {
+    if (readOnly) return;
     if (event.key === "Escape" && (selectedElementIds.length || effectiveSelectedZoneIds.length)) {
       event.preventDefault();
       setSelectedElementIds([]);
@@ -569,8 +733,8 @@ export default function PlanCanvas({
     if (modifier && event.code === "KeyA") {
       event.preventDefault();
       setSelectedElementIds(floorElements.map((item) => item.id));
-      setSelectedZoneIds(zones.map((zone) => zone.id));
-      onSelectZone(zones.at(-1)?.id ?? "");
+      setSelectedZoneIds(canvasZones.map((zone) => zone.id));
+      onSelectZone(canvasZones.at(-1)?.id ?? "");
       if (floorElements.length) setInspectorVisible(true);
       return;
     }
@@ -600,7 +764,6 @@ export default function PlanCanvas({
       deleteSelected();
       return;
     }
-    if (!selectedElementIds.length) return;
     const moves: Record<string, [number, number]> = {
       ArrowLeft: [-1, 0],
       ArrowRight: [1, 0],
@@ -610,8 +773,23 @@ export default function PlanCanvas({
     const move = moves[event.key];
     if (!move) return;
     event.preventDefault();
-    pushHistory();
     const amount = event.shiftKey ? 2 : snapToGrid ? 0.5 : 0.1;
+    if (!selectedElementIds.length && effectiveSelectedZoneIds.length && onZonesChange) {
+      const selectedZones = new Set(effectiveSelectedZoneIds);
+      const active = zonesRef.current.filter((item) => selectedZones.has(item.id));
+      const requestedX = move[0] * amount;
+      const requestedY = move[1] * amount;
+      const deltaX = clamp(requestedX, Math.max(...active.map((item) => -item.left)), Math.min(...active.map((item) => 100 - item.left - item.width)));
+      const deltaY = clamp(requestedY, Math.max(...active.map((item) => -item.top)), Math.min(...active.map((item) => 100 - item.top - item.height)));
+      publishZones(zonesRef.current.map((item) => selectedZones.has(item.id) ? {
+        ...item,
+        left: rounded(item.left + deltaX),
+        top: rounded(item.top + deltaY),
+      } : item), true);
+      return;
+    }
+    if (!selectedElementIds.length) return;
+    pushHistory();
     const selected = new Set(selectedElementIds);
     publish(elementsRef.current.map((item) => selected.has(item.id) && !item.locked ? {
       ...item,
@@ -638,9 +816,16 @@ export default function PlanCanvas({
     updateSelected({ [field]: rounded(clamp(value, field === "viewAngle" ? 20 : 5, field === "viewAngle" ? 160 : 60)) });
   };
 
+  const tableSeatsPatch = (rawValue: string) => {
+    if (!selectedElement || selectedElement.kind !== "table") return;
+    const value = Number(rawValue);
+    if (!Number.isFinite(value)) return;
+    updateSelected({ seats: Math.round(clamp(value, 1, 50)) });
+  };
+
   return (
-    <section className={`plan-editor${fullScreen ? " is-fullscreen" : ""}`} aria-label={`Редактор плана, ${floor} этаж`} onKeyDown={handleEditorKeyDown}>
-      <header className="plan-editor__toolbar">
+    <section className={`plan-editor${fullScreen ? " is-fullscreen" : ""}${readOnly ? " is-readonly" : ""}`} aria-label={`${readOnly ? "Просмотр" : "Редактор"} плана, ${floor} этаж`} onKeyDown={readOnly ? undefined : handleEditorKeyDown}>
+      {!readOnly && <header className="plan-editor__toolbar">
         <div className="plan-editor__history" role="group" aria-label="История изменений">
           <button type="button" disabled={!historyState.undo} onClick={undo} title="Отменить (Ctrl+Z)"><Undo2 /><span>Отменить</span></button>
           <button type="button" disabled={!historyState.redo} onClick={redo} title="Повторить (Ctrl+Y)"><Redo2 /><span>Повторить</span></button>
@@ -660,12 +845,15 @@ export default function PlanCanvas({
           </span>
         </div>
         <div className="plan-editor__save-state" aria-live="polite"><Save />{savedAt ? `Сохранено ${savedAt.toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" })}` : "Автосохранение включено"}</div>
-      </header>
+      </header>}
 
-      <div className={`plan-editor__workspace${libraryVisible ? "" : " is-library-hidden"}${inspectorVisible ? "" : " is-inspector-hidden"}`}>
-        {libraryVisible && <aside className="plan-editor__library" aria-label="Библиотека объектов">
-          <div className="plan-editor__panel-title"><Plus /><span><strong>Объекты</strong><small>Нажмите, чтобы добавить</small></span></div>
-          {GROUPS.map((group) => (
+      <div className={`plan-editor__workspace${!readOnly && libraryVisible ? "" : " is-library-hidden"}${!readOnly && inspectorVisible ? "" : " is-inspector-hidden"}`}>
+        {!readOnly && libraryVisible && <aside className="plan-editor__library" aria-label="Библиотека объектов">
+          <div className="plan-editor__library-tabs" role="tablist" aria-label="Содержимое плана">
+            <button role="tab" aria-selected={libraryTab === "objects"} className={libraryTab === "objects" ? "active" : ""} onClick={() => setLibraryTab("objects")}><Square /> Объекты</button>
+            <button role="tab" aria-selected={libraryTab === "zones"} className={libraryTab === "zones" ? "active" : ""} onClick={() => setLibraryTab("zones")}><MapPin /> Зоны <b>{canvasZones.length}</b></button>
+          </div>
+          {libraryTab === "objects" && GROUPS.map((group) => (
             <div className="plan-editor__library-group" key={group}>
               <h3>{group}</h3>
               {LIBRARY.filter((item) => item.group === group).map((item) => (
@@ -677,6 +865,31 @@ export default function PlanCanvas({
               ))}
             </div>
           ))}
+          {libraryTab === "zones" && <div className="plan-editor__library-group plan-editor__zone-library">
+            <button className="plan-editor__zone-create" type="button" onClick={onCreateZone} disabled={!onCreateZone}>
+              <i><Plus /></i>
+              <span><strong>Создать зону</strong><small>Зал, бар, кухня или проход</small></span>
+              <Plus />
+            </button>
+            {canvasZones.map((zone) => (
+              <button
+                className={effectiveSelectedZoneIds.includes(zone.id) ? "is-active" : ""}
+                type="button"
+                key={zone.id}
+                onClick={() => {
+                  setSelectedElementIds([]);
+                  setSelectedZoneIds([zone.id]);
+                  onSelectZone(zone.id);
+                  setInspectorVisible(true);
+                }}
+              >
+                <i><MapPin /></i>
+                <span><strong>{zone.name}</strong><small>{zone.capacity} мест · {zone.coverage}% покрытия</small></span>
+                <SlidersHorizontal />
+              </button>
+            ))}
+            {canvasZones.length === 0 && <p className="plan-editor__zones-empty">Зон пока нет — создайте первую.</p>}
+          </div>}
         </aside>}
 
         <div className="plan-editor__canvas-column">
@@ -685,17 +898,20 @@ export default function PlanCanvas({
               ref={boardRef}
               className="plan-editor__stage"
               style={{ width: `${zoom}%`, minHeight: `${Math.round(520 * (zoom / 100))}px` }}
-              tabIndex={0}
-              onPointerDown={startSelection}
-              onPointerMove={moveSelection}
-              onPointerUp={finishSelection}
-              onPointerCancel={finishSelection}
+              tabIndex={readOnly ? -1 : 0}
+              onPointerDown={readOnly ? undefined : startSelection}
+              onPointerMove={readOnly ? undefined : moveSelection}
+              onPointerUp={readOnly ? undefined : finishSelection}
+              onPointerCancel={readOnly ? undefined : finishSelection}
               aria-label="Рабочая область плана. Выберите объект и перемещайте стрелками или перетаскиванием."
             >
               {gridVisible && <div className="plan-editor__grid" aria-hidden="true" />}
               <div
                 ref={contentRef}
-                className={`plan-editor__content-layer${backgroundImageUrl ? " has-image" : ""}`}
+                className={`plan-editor__content-layer${backgroundImageUrl ? " has-image" : ""}${backgroundMode === "camera-view" ? " is-camera-view" : ""}`}
+                onPointerMove={readOnly ? undefined : moveZoneInteraction}
+                onPointerUp={readOnly ? undefined : finishZoneInteraction}
+                onPointerCancel={readOnly ? undefined : finishZoneInteraction}
                 style={{
                   "--plan-image-ratio": backgroundAspectRatio ?? 1,
                   width: backgroundImageUrl && backgroundAspectRatio && backgroundAspectRatio < stageAspectRatio ? `${(backgroundAspectRatio / stageAspectRatio) * 100}%` : "100%",
@@ -706,6 +922,12 @@ export default function PlanCanvas({
                   backgroundSize: "100% 100%",
                 } as CSSProperties}
               >
+              {backgroundMode === "camera-view" && (
+                <div className="plan-editor__camera-view-mode" role="note">
+                  <Camera aria-hidden="true" />
+                  <span><strong>Вид камеры</strong><small>Зоны — области кадра, не метры на плане</small></span>
+                </div>
+              )}
               {backgroundImageUrl && (
                 // The protected same-origin asset needs the browser auth cookie, so a raw image is intentional here.
                 // eslint-disable-next-line @next/next/no-img-element
@@ -739,15 +961,20 @@ export default function PlanCanvas({
                 </svg>
               )}
 
-              {zones.map((zone) => (
+              {canvasZones.map((zone) => (
                 <button
                   key={zone.id}
                   type="button"
                   className={`plan-editor__zone${effectiveSelectedZoneIds.includes(zone.id) ? " is-selected" : ""}${zone.coverage < 75 ? " is-warning" : ""}`}
                   style={{ left: `${zone.left}%`, top: `${zone.top}%`, width: `${zone.width}%`, height: `${zone.height}%` }}
-                  onPointerDown={(event) => event.stopPropagation()}
+                  onPointerDown={readOnly ? undefined : (event) => startZoneInteraction(event, zone, "move")}
                   onClick={(event) => {
                     event.stopPropagation();
+                    if (readOnly) return;
+                    if (suppressZoneClickRef.current) {
+                      suppressZoneClickRef.current = false;
+                      return;
+                    }
                     setSelectedElementIds([]);
                     if (event.shiftKey) {
                       setSelectedZoneIds((current) => {
@@ -764,8 +991,21 @@ export default function PlanCanvas({
                   aria-label={`${zone.name}, вместимость ${zone.capacity}, покрытие ${zone.coverage}%`}
                 >
                   <strong>{zone.name}</strong><span>{zone.capacity} мест · {zone.coverage}%</span>
+                  {!readOnly && effectiveSelectedZoneIds.length === 1 && effectiveSelectedZoneIds.includes(zone.id) && onZonesChange && (
+                    <span
+                      className="plan-editor__zone-resize-handle"
+                      aria-hidden="true"
+                      onPointerDown={(event) => startZoneInteraction(event, zone, "resize")}
+                    ><Grip /></span>
+                  )}
                 </button>
               ))}
+
+              {backgroundMode === "camera-view" && (
+                <div className="plan-editor__viewpoint-anchor" aria-label="Точка съёмки камеры расположена снизу по центру кадра">
+                  <Camera aria-hidden="true" /><span>Точка съёмки</span>
+                </div>
+              )}
 
               {floorElements.map((item) => {
                 const selected = selectedElementIds.includes(item.id);
@@ -783,14 +1023,15 @@ export default function PlanCanvas({
                     } as CSSProperties}
                     aria-pressed={selected}
                     aria-keyshortcuts="ArrowUp ArrowDown ArrowLeft ArrowRight Delete Control+D"
-                    aria-label={`${KIND_LABELS[item.kind]}: ${item.label}. Координаты ${Math.round(item.x)}, ${Math.round(item.y)}`}
+                    aria-label={`${KIND_LABELS[item.kind]}: ${item.label}${item.kind === "table" ? `, ${tableSeatCount(item)} мест` : ""}. Координаты ${Math.round(item.x)}, ${Math.round(item.y)}`}
                     title={`${item.label}${item.locked ? " · заблокировано" : " · перетащите или используйте стрелки"}`}
-                    onPointerDown={(event) => startInteraction(event, item, "move")}
-                    onPointerMove={moveInteraction}
-                    onPointerUp={finishInteraction}
-                    onPointerCancel={finishInteraction}
+                    onPointerDown={readOnly ? undefined : (event) => startInteraction(event, item, "move")}
+                    onPointerMove={readOnly ? undefined : moveInteraction}
+                    onPointerUp={readOnly ? undefined : finishInteraction}
+                    onPointerCancel={readOnly ? undefined : finishInteraction}
                     onClick={(event) => {
                       event.stopPropagation();
+                      if (readOnly) return;
                       if (event.shiftKey) setSelectedElementIds((current) => current.includes(item.id) ? current.filter((id) => id !== item.id) : [...current, item.id]);
                       else if (!selectedElementIds.includes(item.id)) setSelectedElementIds([item.id]);
                       if (!event.shiftKey) setSelectedZoneIds([]);
@@ -799,9 +1040,10 @@ export default function PlanCanvas({
                     }}
                   >
                     <KindIcon kind={item.kind} shape={item.shape} />
+                    {item.kind === "table" && <b className="plan-editor__table-seats" title={`${tableSeatCount(item)} мест`}>{tableSeatCount(item)} м.</b>}
                     {item.kind !== "wall" && item.kind !== "door" && <span>{item.label}</span>}
                     {item.locked && <Lock className="plan-editor__lock-mark" aria-hidden="true" />}
-                    {selected && !item.locked && (
+                    {!readOnly && selected && !item.locked && (
                       <span
                         className="plan-editor__resize-handle"
                         onPointerDown={(event) => startInteraction(event, item, "resize")}
@@ -814,7 +1056,7 @@ export default function PlanCanvas({
                 );
               })}
 
-              {!backgroundImageUrl && (planSource === "manual" || !planFileName) && zones.length === 0 && floorElements.length === 0 && (
+              {!backgroundImageUrl && (planSource === "manual" || !planFileName) && canvasZones.length === 0 && floorElements.length === 0 && (
                 <div className="plan-editor__empty"><MousePointer2 /><strong>Начните собирать план</strong><span>Выберите объект слева. Затем настройте размер и подпись в инспекторе справа.</span></div>
               )}
               </div>
@@ -826,14 +1068,15 @@ export default function PlanCanvas({
               }} aria-hidden="true" />}
             </div>
           </div>
-          <div className="plan-editor__canvas-hint"><MousePointer2 /> Рамка мышью — выделить · <kbd>Shift</kbd> + клик — добавить · <kbd>Ctrl</kbd> + <kbd>C/V</kbd> — копировать · <kbd>Del</kbd> — удалить</div>
+          {!readOnly && <div className="plan-editor__canvas-hint"><MousePointer2 /> Рамка мышью — выделить · <kbd>Shift</kbd> + клик — добавить · <kbd>Ctrl</kbd> + <kbd>C/V</kbd> — копировать · <kbd>Del</kbd> — удалить</div>}
         </div>
 
-        {inspectorVisible && <aside className="plan-editor__inspector" aria-label="Свойства объекта">
+        {!readOnly && inspectorVisible && <aside className="plan-editor__inspector" aria-label="Свойства объекта">
           <div className="plan-editor__panel-title"><SlidersHorizontal /><span><strong>Свойства</strong><small>{selectedElementIds.length + effectiveSelectedZoneIds.length > 1 ? `Выбрано ${selectedElementIds.length + effectiveSelectedZoneIds.length} элементов` : effectiveSelectedZoneIds.length ? "Выбрана зона" : selectedElement ? KIND_LABELS[selectedElement.kind] : "Объект не выбран"}</small></span></div>
           {selectedElement ? (
             <div className="plan-editor__property-form">
               <label>Название<input value={selectedElement.label} maxLength={160} onFocus={beginPropertyEdit} onChange={(event) => updateSelected({ label: event.target.value })} onBlur={finishPropertyEdit} /></label>
+              {selectedElement.kind === "camera" && <label>Зал<input value={selectedCameraZone?.name ?? "Вне зала"} readOnly /><small>Определяется автоматически по положению камеры внутри зоны.</small></label>}
               <div className="plan-editor__field-grid">
                 <label>X, %<input type="number" step="0.5" min="0" max="100" value={rounded(selectedElement.x)} onFocus={beginPropertyEdit} onChange={(event) => numericPatch("x", event.target.value)} onBlur={finishPropertyEdit} /></label>
                 <label>Y, %<input type="number" step="0.5" min="0" max="100" value={rounded(selectedElement.y)} onFocus={beginPropertyEdit} onChange={(event) => numericPatch("y", event.target.value)} onBlur={finishPropertyEdit} /></label>
@@ -848,7 +1091,10 @@ export default function PlanCanvas({
                 <label>Дальность на плане, %<div className="plan-editor__range-field"><input type="range" min="5" max="60" step="1" value={selectedElement.viewRadius ?? 28} onFocus={beginPropertyEdit} onChange={(event) => cameraViewPatch("viewRadius", event.target.value)} onBlur={finishPropertyEdit} /><input type="number" min="5" max="60" step="1" value={selectedElement.viewRadius ?? 28} onFocus={beginPropertyEdit} onChange={(event) => cameraViewPatch("viewRadius", event.target.value)} onBlur={finishPropertyEdit} /></div></label>
                 <small>Направление меняется ползунком «Поворот» выше.</small>
               </div>}
-              {selectedElement.kind === "table" && <label>Форма<select value={selectedElement.shape ?? "rectangle"} onChange={(event) => { pushHistory(); updateSelected({ shape: event.target.value as ElementShape }, true); }}><option value="rectangle">Прямоугольная</option><option value="round">Круглая</option></select></label>}
+              {selectedElement.kind === "table" && <>
+                <label className="plan-editor__seat-field">Количество мест<input type="number" min="1" max="50" step="1" value={tableSeatCount(selectedElement)} onFocus={beginPropertyEdit} onChange={(event) => tableSeatsPatch(event.target.value)} onBlur={finishPropertyEdit} /></label>
+                <label>Форма<select value={selectedElement.shape ?? "rectangle"} onChange={(event) => { pushHistory(); updateSelected({ shape: event.target.value as ElementShape }, true); }}><option value="rectangle">Прямоугольная</option><option value="round">Круглая</option></select></label>
+              </>}
               <label>Цвет<div className="plan-editor__color-field"><input type="color" value={selectedElement.color ?? "#5f746b"} onFocus={beginPropertyEdit} onChange={(event) => updateSelected({ color: event.target.value })} onBlur={finishPropertyEdit} /><input value={selectedElement.color ?? "#5f746b"} readOnly tabIndex={-1} aria-label="Код цвета" /></div></label>
               <button className={`plan-editor__lock-toggle${selectedElement.locked ? " is-active" : ""}`} type="button" onClick={() => { pushHistory(); updateSelected({ locked: !selectedElement.locked }, true); }}>{selectedElement.locked ? <Lock /> : <Unlock />}{selectedElement.locked ? "Разблокировать объект" : "Заблокировать объект"}</button>
               <div className="plan-editor__layer-actions"><span><Layers3 /> Слой</span><button type="button" onClick={() => changeLayer("front")}>На передний план</button><button type="button" onClick={() => changeLayer("back")}>На задний план</button></div>
@@ -858,8 +1104,24 @@ export default function PlanCanvas({
                 <button className="danger" type="button" onClick={deleteSelected}><Trash2 /> Удалить</button>
               </div>
             </div>
+          ) : selectedPlanZone ? (
+            <div className="plan-editor__property-form plan-editor__zone-properties">
+              <label>Название зоны<input value={selectedPlanZone.name} maxLength={100} onChange={(event) => updateSelectedZone({ name: event.target.value })} onBlur={commitSelectedZone} /></label>
+              <label>Тип<input value={selectedPlanZone.type ?? "Dining"} maxLength={80} onChange={(event) => updateSelectedZone({ type: event.target.value })} onBlur={commitSelectedZone} /></label>
+              <label className="plan-editor__seat-field">Вместимость<input type="number" min="0" max="100000" step="1" value={selectedPlanZone.capacity} onChange={(event) => zoneNumericPatch("capacity", event.target.value)} onBlur={commitSelectedZone} /></label>
+              <div className="plan-editor__field-grid">
+                <label>X, %<input type="number" step="0.5" min="0" max="100" value={rounded(selectedPlanZone.left)} onChange={(event) => zoneNumericPatch("left", event.target.value)} onBlur={commitSelectedZone} /></label>
+                <label>Y, %<input type="number" step="0.5" min="0" max="100" value={rounded(selectedPlanZone.top)} onChange={(event) => zoneNumericPatch("top", event.target.value)} onBlur={commitSelectedZone} /></label>
+                <label>Ширина, %<input type="number" step="0.5" min="3" max="100" value={rounded(selectedPlanZone.width)} onChange={(event) => zoneNumericPatch("width", event.target.value)} onBlur={commitSelectedZone} /></label>
+                <label>Высота, %<input type="number" step="0.5" min="3" max="100" value={rounded(selectedPlanZone.height)} onChange={(event) => zoneNumericPatch("height", event.target.value)} onBlur={commitSelectedZone} /></label>
+              </div>
+              <div className="plan-editor__zone-help"><MapPin /><span>Зону также можно перетащить на плане и растянуть за нижний правый угол.</span></div>
+              <div className="plan-editor__object-actions">
+                <button className="danger" type="button" onClick={() => void onDeleteZones?.([selectedPlanZone.id])}><Trash2 /> Удалить зону</button>
+              </div>
+            </div>
           ) : (
-            <div className="plan-editor__inspector-empty"><Square /><strong>Выберите объект</strong><span>Здесь появятся точные размеры, координаты, подпись, цвет и порядок слоя.</span></div>
+            <div className="plan-editor__inspector-empty"><Square /><strong>Выберите объект или зону</strong><span>Здесь появятся точные размеры, координаты и свойства.</span></div>
           )}
         </aside>}
       </div>
@@ -867,7 +1129,7 @@ export default function PlanCanvas({
       <footer className="plan-editor__footer">
         <span><MagnetIcon /> Шаг {snapToGrid ? "0,5%" : "свободный"}</span>
         <span><Grid3X3 /> Сетка {gridVisible ? "включена" : "скрыта"}</span>
-        <span className="plan-editor__count"><MapPin /> {selectedElementIds.length + effectiveSelectedZoneIds.length ? `Выбрано ${selectedElementIds.length + effectiveSelectedZoneIds.length} · ` : ""}{planSource === "image" ? "Фото · " : planSource === "pdf" ? "PDF · " : "Ручной · "}{zones.length} зон · {floorElements.length} объектов</span>
+        <span className="plan-editor__count"><MapPin /> {selectedElementIds.length + effectiveSelectedZoneIds.length ? `Выбрано ${selectedElementIds.length + effectiveSelectedZoneIds.length} · ` : ""}{planSource === "image" ? "Фото · " : planSource === "pdf" ? "PDF · " : "Ручной · "}{canvasZones.length} зон · {floorElements.length} объектов</span>
       </footer>
     </section>
   );

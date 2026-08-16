@@ -30,6 +30,46 @@ services:
       retries: 20
       start_period: 10s
 
+  yolo:
+    build:
+      context: ./yolo-worker
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    init: true
+    environment:
+      YOLO_MODEL_PATH: /opt/models/yolo11s.pt
+      YOLO_CONFIDENCE: ${YOLO_CONFIDENCE:-0.12}
+      YOLO_IOU: ${YOLO_IOU:-0.70}
+      YOLO_IMAGE_SIZE: ${YOLO_IMAGE_SIZE:-960}
+      YOLO_TILED_INFERENCE: ${YOLO_TILED_INFERENCE:-true}
+      YOLO_TILE_SLICES: ${YOLO_TILE_SLICES:-3}
+      YOLO_TILE_OVERLAP: ${YOLO_TILE_OVERLAP:-0.15}
+      YOLO_MAX_DETECTIONS: ${YOLO_MAX_DETECTIONS:-120}
+      YOLO_MAX_UPLOAD_BYTES: ${YOLO_MAX_UPLOAD_BYTES:-8388608}
+      YOLO_MAX_IMAGE_PIXELS: ${YOLO_MAX_IMAGE_PIXELS:-25000000}
+      YOLO_MAX_VIDEO_UPLOAD_BYTES: ${YOLO_MAX_VIDEO_UPLOAD_BYTES:-209715200}
+      YOLO_MAX_VIDEO_PIXELS: ${YOLO_MAX_VIDEO_PIXELS:-25000000}
+      YOLO_MAX_VIDEO_DURATION_SECONDS: ${YOLO_MAX_VIDEO_DURATION_SECONDS:-1800}
+      YOLO_VIDEO_JPEG_QUALITY: ${YOLO_VIDEO_JPEG_QUALITY:-88}
+      YOLO_TORCH_THREADS: ${YOLO_TORCH_THREADS:-2}
+      YOLO_API_KEY: ${YOLO_API_KEY:-}
+    ports:
+      - "127.0.0.1:${YOLO_PORT:-8000}:8000"
+    cpus: "2.0"
+    mem_limit: 3g
+    shm_size: 256m
+    stop_grace_period: 20s
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3).read()"
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 60s
+
   api:
     build:
       context: ./backend
@@ -50,10 +90,17 @@ services:
       SEED_OWNER_PASSWORD: ${SEED_OWNER_PASSWORD:?Set SEED_OWNER_PASSWORD in .env}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       OPENAI_PLAN_MODEL: ${OPENAI_PLAN_MODEL:-gpt-5.6}
+      OPENAI_CAMERA_VISION_TIMEOUT_MS: ${OPENAI_CAMERA_VISION_TIMEOUT_MS:-35000}
+      YOLO_API_URL: http://yolo:8000/detect
+      YOLO_DETECT_TIMEOUT_MS: ${YOLO_DETECT_TIMEOUT_MS:-18000}
+      YOLO_VIDEO_FRAME_URL: http://yolo:8000/video/frame
+      YOLO_API_KEY: ${YOLO_API_KEY:-}
     ports:
       - "127.0.0.1:4000:4000"
     depends_on:
       mongo:
+        condition: service_healthy
+      yolo:
         condition: service_healthy
     healthcheck:
       test:

@@ -2,6 +2,17 @@ function round(value) {
   return Math.round(value * 1000) / 1000;
 }
 
+function inferTableSeats({ type, seats, label, width }, floor) {
+  if (type !== "table") return 0;
+  const explicit = Number(seats);
+  if (Number.isFinite(explicit) && explicit > 0) return Math.min(50, Math.max(1, Math.round(explicit)));
+  const labelMatch = String(label || "").match(/\b(\d{1,2})\s*(?:мест(?:а)?|seats?)\b/i);
+  if (labelMatch) return Math.min(50, Math.max(1, Number(labelMatch[1])));
+  if (/барн|bar\s*counter/i.test(String(label || ""))) return 6;
+  const widthPercent = floor && Number(width) > 100 ? (Number(width) / floor.canvas.width) * 100 : Number(width);
+  return Number.isFinite(widthPercent) && widthPercent >= 12 ? 8 : 4;
+}
+
 function toFrontendPlanElement(element, floor) {
   return {
     id: element.clientId || String(element._id),
@@ -21,6 +32,7 @@ function toFrontendPlanElement(element, floor) {
     viewAngle: element.viewAngle,
     viewRadius: element.viewRadius,
     viewEnabled: element.viewEnabled,
+    seats: inferTableSeats(element, floor),
     source: element.source,
   };
 }
@@ -44,8 +56,9 @@ function toStoredPlanElement(input, floor, context = {}) {
     viewAngle: input.viewAngle,
     viewRadius: input.viewRadius,
     viewEnabled: input.viewEnabled,
+    seats: inferTableSeats({ ...input, type: input.type }, floor),
     source: context.source || "manual",
   };
 }
 
-module.exports = { toFrontendPlanElement, toStoredPlanElement };
+module.exports = { inferTableSeats, toFrontendPlanElement, toStoredPlanElement };

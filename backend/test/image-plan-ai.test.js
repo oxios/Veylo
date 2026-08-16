@@ -25,4 +25,5 @@ test("normalizes AI geometry and removes unsupported kinds", () => {
   assert.equal(result.elements.length, 1);
   assert.equal(result.elements[0].x, 92);
   assert.equal(result.elements[0].y, 93);
+  assert.equal(result.elements[0].seats, 4);
 });

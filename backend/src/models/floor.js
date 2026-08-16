@@ -12,6 +12,11 @@ const floorSchema = new mongoose.Schema({
     default: "building-floor",
   },
   purpose: { type: String, trim: true, maxlength: 80, default: "Гостевая зона" },
+  backgroundMode: {
+    type: String,
+    enum: ["floor-plan", "camera-view"],
+    default: "floor-plan",
+  },
   canvas: {
     width: { type: Number, default: 1200, min: 320, max: 10_000 },
     height: { type: Number, default: 800, min: 240, max: 10_000 },

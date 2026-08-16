@@ -21,6 +21,7 @@ const planElementSchema = new mongoose.Schema({
   viewAngle: { type: Number, default: 70, min: 20, max: 160 },
   viewRadius: { type: Number, default: 28, min: 5, max: 60 },
   viewEnabled: { type: Boolean, default: true },
+  seats: { type: Number, default: 0, min: 0, max: 50 },
   source: { type: String, enum: ["manual", "pdf-auto", "image-ai"], default: "manual" },
 }, schemaOptions);
 

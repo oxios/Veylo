@@ -18,6 +18,7 @@ test("normalised canvas coordinates round-trip through storage coordinates", () 
     color: "#d8b46b",
     zIndex: 2,
     locked: false,
+    seats: 6,
   };
   const stored = toStoredPlanElement(input, floor);
   const output = toFrontendPlanElement({ ...stored, _id: "mongo-id" }, floor);
@@ -35,4 +36,23 @@ test("normalised canvas coordinates round-trip through storage coordinates", () 
   assert.equal(output.color, "#d8b46b");
   assert.equal(output.zIndex, 2);
   assert.equal(output.locked, false);
+  assert.equal(output.seats, 6);
+});
+
+test("infers a safe seat count for older table records", () => {
+  const stored = toStoredPlanElement({
+    clientId: "legacy-table",
+    type: "table",
+    x: 10,
+    y: 10,
+    width: 14,
+    height: 7,
+    rotation: 0,
+    label: "Большой стол",
+    shape: "rectangle",
+    color: "#8d672f",
+    zIndex: 0,
+    locked: false,
+  }, floor);
+  assert.equal(stored.seats, 8);
 });

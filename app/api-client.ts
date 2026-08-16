@@ -10,6 +10,11 @@ export class ApiError extends Error {
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "/api";
 
+type ApiErrorPayload = {
+  message?: string;
+  error?: string | { message?: string };
+};
+
 export async function apiFetch<T>(path: string, init: RequestInit = {}): Promise<T> {
   const headers = new Headers(init.headers);
   if (init.body && !(init.body instanceof FormData) && !headers.has("Content-Type")) {
@@ -21,10 +26,13 @@ export async function apiFetch<T>(path: string, init: RequestInit = {}): Promise
     headers,
     credentials: "include",
   });
-  const payload = await response.json().catch(() => null) as { message?: string } | null;
+  const payload = await response.json().catch(() => null) as ApiErrorPayload | null;
 
   if (!response.ok) {
-    throw new ApiError(payload?.message ?? "Сервер не смог выполнить запрос", response.status);
+    const nestedMessage = typeof payload?.error === "string"
+      ? payload.error
+      : payload?.error?.message;
+    throw new ApiError(nestedMessage ?? payload?.message ?? "Сервер не смог выполнить запрос", response.status);
   }
 
   return payload as T;

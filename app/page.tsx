@@ -2516,11 +2516,30 @@ function VenueFlowDashboard() {
     applySavedLocation(saved);
     return saved;
   };
-  const updateLocation = (updated: VenueLocation) => {
-    applySavedLocation(updated);
-    void apiFetch<{ location: VenueLocation }>(`/locations/${encodeURIComponent(updated.id)}`, { method: "PUT", body: JSON.stringify(updated) })
-      .then(({ location: saved }) => applySavedLocation(saved))
-      .catch((error) => notify(`Изменения показаны локально, но не сохранены: ${error instanceof Error ? error.message : "ошибка API"}`));
+  const updateLocation = async (updated: VenueLocation) => {
+    try {
+      const { location: persisted } = await apiFetch<{ location: VenueLocation }>(`/locations/${encodeURIComponent(updated.id)}`, { method: "PATCH", body: JSON.stringify(updated) });
+      const saved = { ...updated, ...persisted };
+      applySavedLocation(saved);
+      return saved;
+    } catch (error) {
+      notify(`Не удалось сохранить изменения: ${error instanceof Error ? error.message : "ошибка API"}`);
+      throw error;
+    }
+  };
+  const deleteConfiguredCamera = async (cameraId: string) => {
+    try {
+      const { location: persisted } = await apiFetch<{ deletedCameraId: string; location: VenueLocation }>(
+        `/locations/${encodeURIComponent(location.id)}/cameras/${encodeURIComponent(cameraId)}`,
+        { method: "DELETE" },
+      );
+      const saved = { ...location, ...persisted };
+      applySavedLocation(saved);
+      return saved;
+    } catch (error) {
+      notify(`Не удалось удалить камеру: ${error instanceof Error ? error.message : "ошибка API"}`);
+      throw error;
+    }
   };
   const changeDateRange = (period: string) => { setDateRange(period); setDateMenu(false); notify(`Период изменён: ${period}`, { period }); };
   const content = (() => {
@@ -2601,7 +2620,7 @@ function VenueFlowDashboard() {
       case "floorplan":
         return <FloorPlanManager key={location.id} notify={notify} location={location} go={goToPage as any} onLocationUpdate={updateLocation} />;
       case "cameras":
-        return <CameraControl key={location.id} notify={notify} location={location} locations={locations} onLocationUpdate={updateLocation} />;
+        return <CameraControl key={location.id} notify={notify} location={location} locations={locations} onLocationUpdate={updateLocation} onDeleteCamera={deleteConfiguredCamera} />;
       default:
         return <Generic key={`${page}-${location.id}`} type={page} toast={notify} location={location} onLocationUpdate={updateLocation} />;
     }

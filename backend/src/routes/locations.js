@@ -7,6 +7,7 @@ const Zone = require("../models/zone");
 const validate = require("../middleware/validate");
 const schemas = require("../validation/schemas");
 const { ownedLocation } = require("../services/ownership");
+const { removeConfiguredCamera } = require("../services/camera-removal");
 const ApiError = require("../utils/api-error");
 const asyncHandler = require("../utils/async-handler");
 
@@ -20,6 +21,26 @@ async function ensureCapacity(locationId, ownerId, capacity) {
   const allocated = aggregate[0]?.capacity || 0;
   if (capacity < allocated) {
     throw new ApiError(409, `Capacity cannot be lower than ${allocated}, already allocated to zones`, "CAPACITY_CONFLICT");
+  }
+}
+
+function ensureCameraState(location, fields) {
+  const configuredCameras = fields.configuredCameras ?? location.configuredCameras ?? [];
+  const cameraCount = fields.cameras ?? location.cameras ?? 0;
+  const onlineCount = fields.online ?? location.online ?? 0;
+  if (onlineCount > cameraCount) {
+    throw new ApiError(409, "Online camera count cannot exceed total camera count", "CAMERA_COUNT_CONFLICT");
+  }
+  if (configuredCameras.length > cameraCount) {
+    throw new ApiError(409, "Configured camera count cannot exceed total camera count", "CAMERA_COUNT_CONFLICT");
+  }
+  const cameraIds = configuredCameras.map((camera) => camera.id);
+  if (new Set(cameraIds).size !== cameraIds.length) {
+    throw new ApiError(409, "Camera ids must be unique within a location", "DUPLICATE_CAMERA_ID");
+  }
+  const planElementIds = configuredCameras.map((camera) => camera.planElementId).filter(Boolean);
+  if (new Set(planElementIds).size !== planElementIds.length) {
+    throw new ApiError(409, "A plan camera can only be connected once", "DUPLICATE_PLAN_CAMERA");
   }
 }
 
@@ -111,9 +132,23 @@ router.patch("/:locationId", validate(schemas.locationUpdate), asyncHandler(asyn
   if (req.validated.body.capacity !== undefined) {
     await ensureCapacity(location._id, req.user._id, req.validated.body.capacity);
   }
+  ensureCameraState(location, req.validated.body);
   Object.assign(location, req.validated.body);
   await location.save();
   res.json({ location: location.toJSON() });
+}));
+
+router.delete("/:locationId/cameras/:cameraId", asyncHandler(async (req, res) => {
+  const cameraId = typeof req.params.cameraId === "string" ? req.params.cameraId.trim() : "";
+  if (!cameraId || cameraId.length > 100) {
+    throw new ApiError(400, "Invalid camera id", "INVALID_CAMERA_ID");
+  }
+  const location = await removeConfiguredCamera({
+    locationId: req.params.locationId,
+    ownerId: req.user._id,
+    cameraId,
+  });
+  res.json({ deletedCameraId: cameraId, location: location.toJSON() });
 }));
 
 router.delete("/:locationId", asyncHandler(async (req, res) => {

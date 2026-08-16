@@ -27,11 +27,58 @@ const locationFields = {
 
 const externalId = z.string().trim().regex(/^[\p{L}\p{N}][\p{L}\p{N}_.-]{0,99}$/u, "Invalid location id");
 const locationCreate = z.object({ id: externalId.optional(), ...locationFields });
+
+const configuredCamera = z.object({
+  id: trimmed(1, 100),
+  name: trimmed(1, 160),
+  floor: trimmed(1, 100),
+  zone: trimmed(1, 160),
+  zoneId: trimmed(1, 160).optional(),
+  source: trimmed(1, 500),
+  sourceType: z.enum(["onvif", "rtsp", "vendor", "upload"]).optional(),
+  sourceRef: trimmed(1, 500).optional(),
+  analytics: z.array(trimmed(1, 100)).max(50),
+  status: z.enum(["online", "degraded", "offline"]),
+  calibrated: z.boolean(),
+  retentionDays: finiteNumber.int().min(0).max(3650).optional(),
+  rawVideo: trimmed(1, 50).optional(),
+  privacy: z.record(z.boolean()).optional(),
+  planElementId: trimmed(1, 200).optional(),
+  snapshotId: trimmed(1, 200).optional(),
+  snapshotCapturedAt: z.string().datetime({ offset: true }).optional(),
+  height: finiteNumber.min(0).max(100).optional(),
+  angle: finiteNumber.min(0).max(180).optional(),
+  orientation: finiteNumber.min(0).max(360).optional(),
+});
+
+const configuredScreen = z.object({
+  id: trimmed(1, 100),
+  name: trimmed(1, 160),
+  model: trimmed(1, 160),
+  playlist: trimmed(1, 160),
+  floor: trimmed(1, 100),
+  zone: trimmed(1, 160),
+  orientation: trimmed(1, 50),
+  online: z.boolean(),
+  brightness: finiteNumber.min(0).max(100).optional(),
+});
+
 const locationUpdate = z.object({
   ...Object.fromEntries(Object.entries(locationFields).map(([key, value]) => [key, value.optional()])),
+  floors: finiteNumber.int().min(0).max(250).optional(),
+  zones: finiteNumber.int().min(0).max(100_000).optional(),
+  cameras: finiteNumber.int().min(0).max(100_000).optional(),
+  online: finiteNumber.int().min(0).max(100_000).optional(),
+  readiness: finiteNumber.min(0).max(100).optional(),
   status: z.enum(["ready", "attention", "setup"]).optional(),
+  demoSeeded: z.boolean().optional(),
   privacyConfigured: z.boolean().optional(),
+  historyDays: finiteNumber.int().min(0).max(3650).optional(),
+  planFloors: z.array(trimmed(1, 20)).max(250).optional(),
   connectedSources: z.array(trimmed(1, 100)).max(100).optional(),
+  configuredCameras: z.array(configuredCamera).max(10_000).optional(),
+  configuredScreens: z.array(configuredScreen).max(10_000).optional(),
+  zoneCameraLinks: z.record(z.array(trimmed(1, 100)).max(1000)).optional(),
 }).refine((value) => Object.keys(value).length > 0, "At least one field is required");
 
 const canvas = z.object({
@@ -54,6 +101,7 @@ const floorUpdate = z.object({
   name: trimmed(1, 100).optional(),
   spaceType: z.enum(["building-floor", "hall", "outdoor", "terrace", "basement", "mezzanine", "service", "other"]).optional(),
   purpose: trimmed(1, 80).optional(),
+  backgroundMode: z.enum(["floor-plan", "camera-view"]).optional(),
   canvas: z.object({
     width: finiteNumber.int().min(320).max(10_000).optional(),
     height: finiteNumber.int().min(240).max(10_000).optional(),
@@ -108,6 +156,7 @@ const planElementFields = {
   viewAngle: finiteNumber.min(20).max(160).default(70),
   viewRadius: finiteNumber.min(5).max(60).default(28),
   viewEnabled: z.boolean().default(true),
+  seats: finiteNumber.int().min(0).max(50).default(0),
 };
 
 const normalizePlanElement = (value) => {
@@ -145,6 +194,7 @@ const planElementUpdate = z.object({
   viewAngle: finiteNumber.min(20).max(160).optional(),
   viewRadius: finiteNumber.min(5).max(60).optional(),
   viewEnabled: z.boolean().optional(),
+  seats: finiteNumber.int().min(0).max(50).optional(),
 }).refine((value) => Object.keys(value).length > 0, "At least one field is required")
   .transform(normalizePlanElement);
 const planElementsBulk = z.object({

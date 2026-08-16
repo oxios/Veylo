@@ -12,6 +12,7 @@ const floorRoutes = require("./routes/floors");
 const locationRoutes = require("./routes/locations");
 const planRoutes = require("./routes/plan");
 const zoneRoutes = require("./routes/zones");
+const cameraVisionRoutes = require("./routes/camera-vision");
 const ApiError = require("./utils/api-error");
 
 const app = express();
@@ -45,6 +46,7 @@ app.use("/api/locations", requireAuth, locationRoutes);
 app.use("/api", requireAuth, floorRoutes);
 app.use("/api", requireAuth, zoneRoutes);
 app.use("/api", requireAuth, planRoutes);
+app.use("/api/camera-vision", requireAuth, cameraVisionRoutes);
 
 app.use(notFound);
 app.use(errorHandler);
