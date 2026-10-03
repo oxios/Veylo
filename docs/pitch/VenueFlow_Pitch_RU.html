@@ -1,0 +1,198 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<title>VenueFlow — питч</title>
+<style>
+  @page { size: A4 landscape; margin: 0; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body { font-family: "Segoe UI", Arial, sans-serif; color: #14201c; background: #fff; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  .slide { width: 297mm; height: 210mm; padding: 18mm 20mm 16mm; page-break-after: always; position: relative; overflow: hidden; display: flex; flex-direction: column; }
+  .slide:last-child { page-break-after: auto; }
+  .dark { background: #0f1f1a; color: #f2f6f3; }
+  .dark .muted { color: #a9bdb4; }
+  .kicker { font-size: 11pt; letter-spacing: .18em; text-transform: uppercase; color: #1f8a5b; font-weight: 600; margin-bottom: 6mm; }
+  .dark .kicker { color: #5fd39a; }
+  h1 { font-size: 34pt; line-height: 1.1; margin: 0 0 6mm; font-weight: 700; letter-spacing: -.01em; }
+  h2 { font-size: 24pt; line-height: 1.15; margin: 0 0 8mm; font-weight: 700; letter-spacing: -.01em; }
+  p, li { font-size: 12.5pt; line-height: 1.45; }
+  .lead { font-size: 15pt; max-width: 210mm; }
+  .muted { color: #5b6b65; }
+  .grid { display: grid; gap: 6mm; }
+  .g3 { grid-template-columns: 1fr 1fr 1fr; }
+  .g4 { grid-template-columns: repeat(4, 1fr); }
+  .card { border: 1px solid #d5e0da; border-radius: 4mm; padding: 6mm 7mm; background: #f6faf8; }
+  .dark .card { background: #172b25; border-color: #27403a; }
+  .card h3 { margin: 0 0 3mm; font-size: 14pt; }
+  .card p, .card li { font-size: 11pt; line-height: 1.4; margin: 0; }
+  .card ul { margin: 0; padding-left: 5mm; }
+  .num { font-size: 26pt; font-weight: 700; color: #1f8a5b; line-height: 1; margin-bottom: 2mm; }
+  .footer { position: absolute; left: 20mm; right: 20mm; bottom: 9mm; display: flex; justify-content: space-between; font-size: 9pt; color: #7a8a84; }
+  .chain { display: flex; align-items: center; gap: 3mm; flex-wrap: wrap; margin: 6mm 0 8mm; }
+  .chain span { background: #e4f3ec; color: #14614a; border-radius: 2mm; padding: 2.5mm 4mm; font-size: 11pt; font-weight: 600; }
+  .chain i { color: #9db3aa; font-style: normal; font-size: 14pt; }
+  .chat { display: grid; grid-template-columns: 1fr 1.35fr; gap: 6mm; flex: 1; }
+  .bubble { border-radius: 4mm; padding: 5mm 6mm; font-size: 11.5pt; line-height: 1.45; }
+  .q { background: #e9eef5; color: #1c2a3a; align-self: start; }
+  .a { background: #f6faf8; border: 1px solid #d5e0da; }
+  .a b { color: #1f8a5b; }
+  .src { font-size: 9.5pt; color: #5b6b65; margin-top: 3mm; border-top: 1px dashed #c9d6d0; padding-top: 2.5mm; }
+  .tag { display: inline-block; font-size: 9pt; background: #14614a; color: #fff; border-radius: 1.5mm; padding: 1mm 2.5mm; margin-right: 1.5mm; }
+  .tag.gray { background: #7a8a84; }
+  .layers { display: grid; grid-template-columns: 1fr; gap: 3.5mm; flex: 1; }
+  .layer { display: grid; grid-template-columns: 52mm 1fr; align-items: center; border-radius: 3mm; padding: 4.5mm 6mm; }
+  .layer strong { font-size: 13pt; }
+  .layer p { margin: 0; font-size: 11pt; }
+  .l1 { background: #0f1f1a; color: #f2f6f3; } .l1 p { color: #cfe0d8; }
+  .l2 { background: #14614a; color: #f2f6f3; } .l2 p { color: #d8ede3; }
+  .l3 { background: #1f8a5b; color: #f2f6f3; } .l3 p { color: #e2f3ea; }
+  .l4 { background: #e4f3ec; color: #14201c; }
+  table { border-collapse: collapse; width: 100%; font-size: 11pt; }
+  th, td { text-align: left; padding: 3mm 4mm; border-bottom: 1px solid #27403a; vertical-align: top; }
+  th { font-size: 10pt; text-transform: uppercase; letter-spacing: .08em; color: #a9bdb4; }
+  .ok { color: #5fd39a; font-weight: 600; white-space: nowrap; } .plan { color: #f0c46a; font-weight: 600; white-space: nowrap; }
+</style>
+</head>
+<body>
+
+<!-- 1. Титул -->
+<section class="slide dark">
+  <div class="kicker">VenueFlow · Restaurant Video Intelligence</div>
+  <h1>Ресторан, который видит себя сам.<br>И отвечает на вопросы владельца.</h1>
+  <p class="lead muted">Видеоаналитика по камерам, QR-, видео- и AR-меню для гостей и AI-бот, который объясняет,
+  что происходит в зале, на кухне и у входа, опираясь на реальные данные, а не на ощущения.</p>
+  <div class="footer"><span>Питч · 2026</span><span>Кафе · рестораны · кофейни · QSR · сети</span></div>
+</section>
+
+<!-- 2. Проблема -->
+<section class="slide">
+  <div class="kicker">Проблема</div>
+  <h2>Владелец управляет рестораном по кассе и отзывам.<br>Что реально происходит в зале, он не видит.</h2>
+  <div class="grid g3">
+    <div class="card"><h3>Камеры пишут в стол</h3><p>Видеонаблюдение есть почти везде, но его смотрят только после инцидента. Очереди, простаивающие столы и медленная подача не попадают ни в один отчёт.</p></div>
+    <div class="card"><h3>Данные разорваны</h3><p>POS, меню, экраны, график смен, отзывы и погода живут в разных сервисах. Никто не связывает «упала выручка» с «у бара стояла очередь 12 минут».</p></div>
+    <div class="card"><h3>Решения принимаются вслепую</h3><p>Сколько людей прошло мимо и не зашло? Какой стол ждал дольше всех? Хватило ли официантов в пятницу? Ответов нет, есть догадки.</p></div>
+  </div>
+  <p class="muted" style="margin-top:8mm">Гость при этом получает бумажное меню и ожидание, а не тот опыт, к которому его приучили доставка и маркетплейсы.</p>
+  <div class="footer"><span>VenueFlow</span><span>2 / 9</span></div>
+</section>
+
+<!-- 3. Решение: четыре слоя -->
+<section class="slide">
+  <div class="kicker">Решение</div>
+  <h2>Одна платформа вместо десяти сервисов: четыре слоя, один источник правды</h2>
+  <div class="layers">
+    <div class="layer l1"><strong>1 · Камеры и сенсоры</strong><p>Существующие камеры ресторана становятся источником событий: люди, столы, очереди, кухня, безопасность. Анонимно, с размытием лиц на edge.</p></div>
+    <div class="layer l2"><strong>2 · Аналитика</strong><p>События превращаются в метрики по локации, этажу, зоне и столу: трафик, capture rate, занятость, время ожидания, стандарты кухни, HACCP.</p></div>
+    <div class="layer l3"><strong>3 · Гостевой слой</strong><p>QR-меню, видео-меню на экранах и планшетах, AR-меню на столе. Одна карточка блюда для всех каналов, связанная с продажами.</p></div>
+    <div class="layer l4"><strong>4 · AI-бот и действия</strong><p>Владелец задаёт вопрос обычным языком, бот отвечает на основе аналитики и предлагает действие с ответственным и измеримым результатом.</p></div>
+  </div>
+  <div class="footer"><span>VenueFlow</span><span>3 / 9</span></div>
+</section>
+
+<!-- 4. Видеоаналитика -->
+<section class="slide">
+  <div class="kicker">Слои 1–2 · Видеоаналитика</div>
+  <h2>Что камеры рассказывают о ресторане</h2>
+  <div class="grid g3">
+    <div class="card"><h3>Снаружи</h3><ul><li>Поток мимо входа и capture rate</li><li>Часы пик по дням и погоде</li><li>Эффект витрины, вывески, экрана</li></ul></div>
+    <div class="card"><h3>Гости и зоны</h3><ul><li>Занятость зала по зонам</li><li>Время пребывания, тепловая карта</li><li>Путь гостя от входа до стола</li></ul></div>
+    <div class="card"><h3>Сервис и столы</h3><ul><li>Ожидание заказа и счёта</li><li>Оборачиваемость столов</li><li>Грязные и незанятые столы</li></ul></div>
+    <div class="card"><h3>Команда</h3><ul><li>Присутствие в зоне и на кассе</li><li>Нагрузка на официанта</li><li>Соответствие графику смен</li></ul></div>
+    <div class="card"><h3>Кухня и стандарты</h3><ul><li>Время отдачи блюд</li><li>Чистота, HACCP, средства защиты</li><li>Списания и Waste Vision</li></ul></div>
+    <div class="card"><h3>Приватность по умолчанию</h3><ul><li>Размытие лиц до передачи</li><li>Без распознавания лиц, аудио выкл.</li><li>Маски для POS PIN, аудит доступа</li></ul></div>
+  </div>
+  <div class="footer"><span>VenueFlow</span><span>4 / 9</span></div>
+</section>
+
+<!-- 5. Гостевой слой -->
+<section class="slide">
+  <div class="kicker">Слой 3 · Гостевой опыт</div>
+  <h2>QR, видео и AR: одно меню, три способа его показать</h2>
+  <div class="grid g3">
+    <div class="card"><div class="num">QR</div><h3>QR-меню</h3><p>Гость сканирует код на столе, видит актуальное меню с ценами из POS, ищет по категориям и делает заказ. Позиция публикуется только если она есть в кассе.</p></div>
+    <div class="card"><div class="num">▶</div><h3>Видео-меню</h3><p>Ролики блюд на экранах, планшетах и в QR-меню. Контент подстраивается под время суток, погоду и загрузку: утром кофе и выпечка, вечером бар и десерты.</p></div>
+    <div class="card"><div class="num">AR</div><h3>AR-меню</h3><p>Блюдо в реальном размере на столе гостя до заказа. Снимает главный барьер выбора «а как это выглядит» и поднимает средний чек на позициях с высокой маржой.</p></div>
+  </div>
+  <p style="margin-top:8mm"><b>Почему это одна система, а не три сервиса:</b> у каждого блюда одна карточка, к ней привязаны продажи из POS, просмотры в меню
+  и поведение гостей в зале с камер. Menu engineering и AI-рекомендации работают на этой связке.</p>
+  <div class="footer"><span>VenueFlow</span><span>5 / 9</span></div>
+</section>
+
+<!-- 6. AI-бот -->
+<section class="slide">
+  <div class="kicker">Слой 4 · Главное</div>
+  <h2>AI-бот, который отвечает на вопросы данными с камер</h2>
+  <div class="chat">
+    <div>
+      <div class="bubble q"><b>Владелец:</b> Почему в четверг вечером выручка ниже обычного? Гостей вроде было много.</div>
+      <p class="muted" style="margin-top:6mm;font-size:11pt">Пример диалога. Каждое утверждение бота ссылается на источник, зону, время и уверенность модели. Если данных нет, бот говорит, чего не хватает, а не придумывает ответ.</p>
+    </div>
+    <div class="bubble a">
+      <p style="margin:0 0 3mm"><b>VenueFlow:</b> Гостей действительно было больше обычного, но зал не справился с потоком.</p>
+      <ul style="margin:0 0 3mm;padding-left:5mm">
+        <li>Capture rate у входа 18:00–21:00 упал: <b>очередь у бара</b> держалась 9–14 минут, часть гостей уходила от двери.</li>
+        <li><b>Четыре стола</b> в основном зале ждали заказ дольше 12 минут; на 38 гостей в зоне работали 2 официанта.</li>
+        <li>Оборачиваемость столов на террасе ниже на 20 %: грязные столы стояли по 8–10 минут.</li>
+      </ul>
+      <p style="margin:0"><b>Рекомендация:</b> добавить бармена с 18:30 по четвергам и включить правило «стол свободен → уведомить хостес». Ответственный: менеджер смены. Эффект измерим через 2 недели.</p>
+      <div class="src"><span class="tag">Камера Бар-1</span><span class="tag">Зона Зал-A</span><span class="tag">Терраса</span><span class="tag gray">POS</span><span class="tag gray">График смен</span> · confidence 0.82 · 14 дней истории</div>
+    </div>
+  </div>
+  <div class="footer"><span>VenueFlow</span><span>6 / 9</span></div>
+</section>
+
+<!-- 7. Доверие -->
+<section class="slide">
+  <div class="kicker">Почему этому можно верить</div>
+  <h2>Каждая цифра проходит одну и ту же цепочку</h2>
+  <div class="chain">
+    <span>Источник</span><i>→</i><span>Настройка</span><i>→</i><span>Событие</span><i>→</i><span>Метрика</span><i>→</i><span>Вывод</span><i>→</i><span>Действие</span><i>→</i><span>Ответственный</span><i>→</i><span>Результат</span>
+  </div>
+  <div class="grid g3">
+    <div class="card"><h3>Нет источника — нет метрики</h3><p>Зона без камеры показывает «нет данных», а не красивый график. Ноль камер никогда не выглядит как «всё в норме».</p></div>
+    <div class="card"><h3>Data Trust Center</h3><p>Происхождение каждой метрики, качество данных, дрейф модели и журнал действий доступны владельцу в один клик.</p></div>
+    <div class="card"><h3>Действие с результатом</h3><p>Рекомендация закрывается только после измерения эффекта. Денежные решения создаются как черновик до подтверждения ответственного.</p></div>
+  </div>
+  <div class="footer"><span>VenueFlow</span><span>7 / 9</span></div>
+</section>
+
+<!-- 8. Для кого и ценность -->
+<section class="slide">
+  <div class="kicker">Для кого</div>
+  <h2>Один продукт, четыре формата заведений</h2>
+  <div class="grid g4">
+    <div class="card"><h3>Кофейня</h3><p>Очередь на кассе, скорость выдачи, capture rate с улицы, утренний пик.</p></div>
+    <div class="card"><h3>Full-service</h3><p>Ожидание у столов, нагрузка официантов, оборачиваемость, AR-меню для среднего чека.</p></div>
+    <div class="card"><h3>QSR</h3><p>Время в очереди, скорость кухни, стандарты и HACCP, видео-меню на экранах.</p></div>
+    <div class="card"><h3>Сеть</h3><p>Сравнение локаций, единые стандарты, эксперименты и раскатка лучших практик.</p></div>
+  </div>
+  <h3 style="margin:9mm 0 4mm;font-size:14pt">Что владелец получает (целевые эффекты)</h3>
+  <div class="grid g4">
+    <div class="card"><div class="num">↑</div><p>Capture rate у входа за счёт витрины, экранов и снятия очередей</p></div>
+    <div class="card"><div class="num">↓</div><p>Время ожидания и число потерянных гостей</p></div>
+    <div class="card"><div class="num">↑</div><p>Средний чек через видео- и AR-меню и menu engineering</p></div>
+    <div class="card"><div class="num">↓</div><p>Списания, простои и нарушения стандартов кухни</p></div>
+  </div>
+  <div class="footer"><span>VenueFlow</span><span>8 / 9</span></div>
+</section>
+
+<!-- 9. Статус и дорожная карта -->
+<section class="slide dark">
+  <div class="kicker">Где мы сейчас</div>
+  <h2>Рабочий прототип и честная дорожная карта</h2>
+  <table>
+    <tr><th>Блок</th><th>Статус</th><th>Что есть</th></tr>
+    <tr><td>Интерфейс</td><td class="ok">Готов</td><td>37 экранов: командный центр, видеоаналитика, операции, гостевой опыт, управление. Контрактные тесты всех экранов и элементов.</td></tr>
+    <tr><td>Настройка локаций</td><td class="ok">Работает</td><td>Локации, этажи, зоны, план зала с камерами; импорт планов из PDF и фото с AI-разметкой; всё сохраняется в базе.</td></tr>
+    <tr><td>Детекция</td><td class="ok">Работает</td><td>Локальный YOLO11-детектор людей и объектов на снимках камер, извлечение кадров из видео, привязка к зонам плана.</td></tr>
+    <tr><td>Аналитика и бот</td><td class="plan">Следующий шаг</td><td>Edge-пайплайн событий с камер в реальном времени, история метрик, бот поверх живых данных вместо демо-сценариев.</td></tr>
+    <tr><td>Гостевой слой</td><td class="plan">Следующий шаг</td><td>Публикация QR-меню из POS, видео-контент на экранах, AR-меню; интеграции POS, график смен, отзывы.</td></tr>
+  </table>
+  <p class="muted" style="margin-top:8mm">Ищем пилотные заведения: 1–3 локации с существующими камерами, 8 недель, совместная постановка целевых метрик.</p>
+  <div class="footer"><span>VenueFlow · 2026</span><span>9 / 9</span></div>
+</section>
+
+</body>
+</html>

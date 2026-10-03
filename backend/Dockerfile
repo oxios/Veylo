@@ -7,6 +7,7 @@ COPY package.json ./
 RUN npm install --omit=dev --no-audit --no-fund && npm cache clean --force
 
 COPY --chown=node:node src ./src
+RUN mkdir -p /data/videos && chown node:node /data/videos
 
 USER node
 EXPOSE 4000

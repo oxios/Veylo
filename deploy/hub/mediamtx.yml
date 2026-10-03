@@ -1,0 +1,38 @@
+# MediaMTX hub of the main server: nodes publish live streams here (only while somebody watches),
+# browsers read them over WebRTC through the API's WHEP proxy. Every publish/read is authorised by the API
+# (authHTTPAddress is set from the environment because it carries MEDIAMTX_SECRET).
+logLevel: info
+logDestinations: [stdout]
+readTimeout: 15s
+writeTimeout: 15s
+
+authMethod: http
+authHTTPExclude:
+  - action: api
+  - action: metrics
+  - action: pprof
+
+api: true
+apiAddress: :9997
+metrics: false
+pprof: false
+playback: false
+
+rtsp: true
+rtspTransports: [tcp]
+rtspAddress: :8554
+rtmp: false
+hls: false
+srt: false
+moq: false
+
+webrtc: true
+webrtcAddress: :8889
+webrtcLocalUDPAddress: :8189
+webrtcLocalTCPAddress: :8189
+# Candidates offered to browsers come from WEBRTC_PUBLIC_HOSTS (MTX_WEBRTCADDITIONALHOSTS), not container IPs.
+webrtcIPsFromInterfaces: false
+
+paths:
+  "~^cam_[a-f0-9]{24}$":
+    source: publisher

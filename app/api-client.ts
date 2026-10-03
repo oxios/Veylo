@@ -32,8 +32,38 @@ export async function apiFetch<T>(path: string, init: RequestInit = {}): Promise
     const nestedMessage = typeof payload?.error === "string"
       ? payload.error
       : payload?.error?.message;
-    throw new ApiError(nestedMessage ?? payload?.message ?? "Сервер не смог выполнить запрос", response.status);
+    throw new ApiError(nestedMessage ?? payload?.message ?? "Сервер не зміг виконати запит", response.status);
   }
 
   return payload as T;
+}
+
+export const apiUrl = (path: string) => `${API_BASE}${path}`;
+
+// fetch() has no upload progress, so large video uploads go through XMLHttpRequest.
+export function apiUpload<T>(path: string, form: FormData, onProgress: (fraction: number) => void): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const request = new XMLHttpRequest();
+    request.open("POST", apiUrl(path));
+    request.withCredentials = true;
+    request.upload.onprogress = (event) => {
+      if (event.lengthComputable) onProgress(event.loaded / event.total);
+    };
+    request.onload = () => {
+      let payload: (ApiErrorPayload & T) | null = null;
+      try {
+        payload = JSON.parse(request.responseText);
+      } catch {
+        payload = null;
+      }
+      if (request.status >= 200 && request.status < 300 && payload) {
+        resolve(payload);
+        return;
+      }
+      const nestedMessage = typeof payload?.error === "string" ? payload.error : payload?.error?.message;
+      reject(new ApiError(nestedMessage ?? payload?.message ?? "Сервер не зміг прийняти файл", request.status));
+    };
+    request.onerror = () => reject(new ApiError("З'єднання перервано під час завантаження", 0));
+    request.send(form);
+  });
 }

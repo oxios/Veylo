@@ -1,0 +1,15 @@
+# NVIDIA GPU for camera-node (requires the NVIDIA Container Toolkit / Docker Desktop WSL2 GPU support).
+services:
+  camera-node:
+    build:
+      args:
+        TORCH_VARIANT: cu128
+    environment:
+      NODE_DEVICE: cuda
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu, utility, compute, video]

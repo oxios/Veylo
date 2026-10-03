@@ -1,15 +1,26 @@
-# VenueFlow v4 — Restaurant Video Intelligence Prototype
+# VenueFlow
 
-Интерактивный UI-only прототип системы видеоаналитики и операционного управления для ресторанов, кафе, кофеен и QSR. Включает 37 страниц, location/floor/zone/camera setup, calibration, traffic/service/staff/kitchen analytics, QR menu, screens/tablets, integrations, Data Trust и Growth Experiments.
-
-Все бизнес-данные и connection tests являются mock. Critical setup state сохраняется между переходами в текущей browser-сессии, но после reload сбрасывается.
+Видеоаналитика для кафе: живые RTSP-камеры (indoor / outdoor / hybrid) и загрузка записей, YOLO + трекинг на узлах
+обработки, архив 24 часа, хитмап, люди в зале, входы и проходы мимо, зайнятість столиков, админка узлов.
+Прежний прототип (37 экранов) сохранён в git-ветке `old`.
 
 Документация:
 
-- [Product Spec v4](docs/VenueFlow_Product_Spec_v4_RU.md)
-- [QA Audit v4](docs/VenueFlow_QA_Audit_v4_RU.md)
+- [ТЗ: live-камеры, узлы обработки, админка](docs/TZ_Live_Cameras_RU.md)
+- [Контракт API](backend/README.md) · [Узел обработки](camera-node/README.md)
+- [Product Spec v4](docs/VenueFlow_Product_Spec_v4_RU.md) · [QA Audit v4](docs/VenueFlow_QA_Audit_v4_RU.md)
 
-Quick start:
+Quick start (весь стек в Docker, нужен `.env` по шаблону `.env.example`):
+
+```bash
+docker compose up -d --build --remove-orphans
+# http://127.0.0.1:5173 — вход seed-owner из .env
+docker compose --profile dev-camera up -d fake-camera   # тестовая RTSP-камера rtsp://fake-camera:8554/main
+```
+
+Удалённый узел обработки: `deploy/node/` (токен выдаётся в «Вузли обробки»).
+
+Только фронтенд (API должен быть поднят):
 
 ```bash
 npm ci

@@ -17,12 +17,14 @@ async function seedOwner(options = {}) {
       email,
       passwordHash: await bcrypt.hash(password, 12),
       role: "owner",
+      isAdmin: true,
     });
     options.log?.(`Seed owner created: ${email}`);
     return { user, created: true };
   }
 
   user.name = name;
+  user.isAdmin = true;
   if (!(await bcrypt.compare(password, user.passwordHash))) {
     user.passwordHash = await bcrypt.hash(password, 12);
   }

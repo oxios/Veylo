@@ -6,6 +6,11 @@ const jsonTransform = (_document, returned) => {
   delete returned.ownerId;
   delete returned.passwordHash;
   delete returned.data;
+  delete returned.storageKey;
+  delete returned.snapshotKey;
+  delete returned.rtspMainSealed;
+  delete returned.rtspSubSealed;
+  delete returned.tokenHash;
   return returned;
 };
 

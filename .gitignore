@@ -50,3 +50,6 @@ __pycache__/
 /outputs/
 /work/
 /tmp/
+
+# uploaded videos in local (non-Docker) runs
+/storage/

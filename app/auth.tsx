@@ -10,6 +10,7 @@ export type AuthUser = {
   email: string;
   name: string;
   role: string;
+  isAdmin?: boolean;
 };
 
 type AuthContextValue = {
@@ -54,9 +55,9 @@ export function AuthGate({ children }: { children: ReactNode }) {
       <main className="auth-state-page">
         <section className="auth-state-card">
           {status === "offline" ? <RefreshCw /> : <ShieldCheck className="auth-spinner" />}
-          <h1>{status === "offline" ? "API пока недоступен" : "Проверяем доступ"}</h1>
-          <p>{status === "offline" ? "Запустите backend и MongoDB, затем повторите попытку." : "Восстанавливаем защищённую сессию VenueFlow."}</p>
-          {status === "offline" && <button className="primary" onClick={() => void checkSession()}><RefreshCw /> Повторить</button>}
+          <h1>{status === "offline" ? "API поки недоступний" : "Перевіряємо доступ"}</h1>
+          <p>{status === "offline" ? "Запустіть backend і MongoDB, потім повторіть спробу." : "Відновлюємо захищену сесію VenueFlow."}</p>
+          {status === "offline" && <button className="primary" onClick={() => void checkSession()}><RefreshCw /> Повторити</button>}
         </section>
       </main>
     );
@@ -96,7 +97,7 @@ export function LoginScreen() {
       });
       router.replace("/overview");
     } catch (requestError) {
-      setError(requestError instanceof Error ? requestError.message : "Не удалось войти");
+      setError(requestError instanceof Error ? requestError.message : "Не вдалося увійти");
     } finally {
       setBusy(false);
     }
@@ -106,19 +107,19 @@ export function LoginScreen() {
     <main className="login-page">
       <section className="login-brand-panel">
         <div className="login-logo"><i>VF</i><span><strong>VenueFlow</strong><small>Video intelligence</small></span></div>
-        <div><span className="login-kicker">OPERATIONS PLATFORM</span><h1>Управляйте заведениями на основе реальных событий.</h1><p>Локации, планы этажей, зоны и операционная аналитика в одном защищённом пространстве.</p></div>
+        <div><span className="login-kicker">OPERATIONS PLATFORM</span><h1>Керуйте закладами на основі реальних подій.</h1><p>Операційна платформа для кафе та ресторанів у захищеному просторі.</p></div>
         <small>VenueFlow · Private workspace</small>
       </section>
       <section className="login-form-panel">
         <form className="login-card" onSubmit={submit}>
           <div className="login-lock"><LockKeyhole /></div>
-          <span>ЗАЩИЩЁННЫЙ ВХОД</span>
-          <h2>Войти в VenueFlow</h2>
-          <p>Используйте рабочий логин и пароль владельца.</p>
+          <span>ЗАХИЩЕНИЙ ВХІД</span>
+          <h2>Увійти до VenueFlow</h2>
+          <p>Використовуйте робочий логін і пароль власника.</p>
           <label>Email<input autoComplete="username" type="email" required value={email} onChange={(event) => setEmail(event.target.value)} placeholder="owner@venueflow.local" /></label>
-          <label>Пароль<div className="login-password"><input autoComplete="current-password" type={showPassword ? "text" : "password"} required value={password} onChange={(event) => setPassword(event.target.value)} placeholder="Введите пароль" /><button type="button" onClick={() => setShowPassword((value) => !value)} aria-label={showPassword ? "Скрыть пароль" : "Показать пароль"}>{showPassword ? <EyeOff /> : <Eye />}</button></div></label>
+          <label>Пароль<div className="login-password"><input autoComplete="current-password" type={showPassword ? "text" : "password"} required value={password} onChange={(event) => setPassword(event.target.value)} placeholder="Введіть пароль" /><button type="button" onClick={() => setShowPassword((value) => !value)} aria-label={showPassword ? "Сховати пароль" : "Показати пароль"}>{showPassword ? <EyeOff /> : <Eye />}</button></div></label>
           {error && <div className="login-error" role="alert">{error}</div>}
-          <button className="primary login-submit" disabled={busy} type="submit">{busy ? <RefreshCw className="auth-spinner" /> : <LogIn />}{busy ? "Входим…" : "Войти"}</button>
+          <button className="primary login-submit" disabled={busy} type="submit">{busy ? <RefreshCw className="auth-spinner" /> : <LogIn />}{busy ? "Входимо…" : "Увійти"}</button>
         </form>
       </section>
     </main>

@@ -1,38 +1,21 @@
-const Floor = require("../models/floor");
-const Location = require("../models/location");
-const PlanElement = require("../models/plan-element");
-const Zone = require("../models/zone");
+const mongoose = require("mongoose");
+const Camera = require("../models/camera");
+const Venue = require("../models/venue");
+const Video = require("../models/video");
 const ApiError = require("../utils/api-error");
-const { requireObjectId } = require("../utils/id");
 
-async function ownedLocation(id, ownerId) {
-  const selectors = [{ externalId: id }];
-  if (/^[a-f\d]{24}$/i.test(id)) selectors.push({ _id: id });
-  const location = await Location.findOne({ ownerId, $or: selectors });
-  if (!location) throw new ApiError(404, "Location not found", "LOCATION_NOT_FOUND");
-  return location;
+// Another owner's resource is indistinguishable from a missing one: always 404, never 403.
+async function ownedResource(Model, id, ownerId, code, label, select) {
+  if (!mongoose.isObjectIdOrHexString(id)) throw new ApiError(404, `${label} not found`, code);
+  const query = Model.findOne({ _id: id, ownerId });
+  if (select) query.select(select);
+  const resource = await query;
+  if (!resource) throw new ApiError(404, `${label} not found`, code);
+  return resource;
 }
 
-async function ownedFloor(id, ownerId) {
-  requireObjectId(id, "floorId");
-  const floor = await Floor.findOne({ _id: id, ownerId });
-  if (!floor) throw new ApiError(404, "Floor not found", "FLOOR_NOT_FOUND");
-  return floor;
-}
+const ownedVenue = (id, ownerId) => ownedResource(Venue, id, ownerId, "VENUE_NOT_FOUND", "Venue");
+const ownedCamera = (id, ownerId, select) => ownedResource(Camera, id, ownerId, "CAMERA_NOT_FOUND", "Camera", select);
+const ownedVideo = (id, ownerId, select) => ownedResource(Video, id, ownerId, "VIDEO_NOT_FOUND", "Video", select);
 
-async function ownedZone(id, ownerId) {
-  requireObjectId(id, "zoneId");
-  const zone = await Zone.findOne({ _id: id, ownerId });
-  if (!zone) throw new ApiError(404, "Zone not found", "ZONE_NOT_FOUND");
-  return zone;
-}
-
-async function ownedPlanElement(id, ownerId) {
-  const selectors = [{ clientId: id }];
-  if (/^[a-f\d]{24}$/i.test(id)) selectors.push({ _id: id });
-  const element = await PlanElement.findOne({ ownerId, $or: selectors });
-  if (!element) throw new ApiError(404, "Plan element not found", "PLAN_ELEMENT_NOT_FOUND");
-  return element;
-}
-
-module.exports = { ownedLocation, ownedFloor, ownedZone, ownedPlanElement };
+module.exports = { ownedVenue, ownedCamera, ownedVideo };

@@ -1,0 +1,5 @@
+lap==0.5.12
+ultralytics-opencv-headless==8.4.104
+requests==2.32.5
+websocket-client==1.8.0
+psutil==7.1.0

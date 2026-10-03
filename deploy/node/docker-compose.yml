@@ -1,0 +1,61 @@
+# Processing node of VenueFlow: run on any Docker host that can reach the cameras and the main server.
+#   cp .env.example .env    # VENUEFLOW_URL and NODE_TOKEN from the admin panel
+#   docker compose up -d --build                                            # CPU
+#   docker compose -f docker-compose.yml -f docker-compose.gpu.yml up -d --build   # NVIDIA GPU
+# The node needs no inbound ports: it calls the main server (HTTPS + WebSocket) and publishes live video
+# to the main server's MediaMTX hub (RTSP) only while somebody watches.
+name: venueflow-node
+
+services:
+  # Gives the recordings volume to uid 1000 (MediaMTX writes, camera-node reads and cleans up).
+  node-init:
+    image: bluenviron/mediamtx:1.21.1-ffmpeg
+    entrypoint: ["sh", "-c", "chown -R 1000:1000 /recordings"]
+    volumes:
+      - recordings:/recordings
+    restart: "no"
+
+  node-mediamtx:
+    image: bluenviron/mediamtx:1.21.1-ffmpeg
+    restart: unless-stopped
+    user: "1000:1000"
+    volumes:
+      - ./mediamtx.yml:/mediamtx.yml:ro
+      - recordings:/recordings
+    depends_on:
+      node-init:
+        condition: service_completed_successfully
+
+  camera-node:
+    build:
+      context: ../../camera-node
+      dockerfile: Dockerfile
+      args:
+        TORCH_VARIANT: ${TORCH_VARIANT:-cpu}
+    restart: unless-stopped
+    init: true
+    environment:
+      VENUEFLOW_URL: ${VENUEFLOW_URL:-}  # required; camera-node exits with a clear error without it
+      NODE_TOKEN: ${NODE_TOKEN:-}
+      NODE_DEVICE: ${NODE_DEVICE:-auto}
+      MEDIAMTX_API_URL: http://node-mediamtx:9997
+      MEDIAMTX_RTSP_URL: rtsp://node-mediamtx:8554
+      MEDIAMTX_PLAYBACK_URL: http://node-mediamtx:9996
+      RECORDINGS_DIR: /recordings
+      ARCHIVE_HOURS: ${ARCHIVE_HOURS:-24}
+      LIVE_SAMPLE_FPS: ${LIVE_SAMPLE_FPS:-5}
+      VIDEO_SAMPLE_FPS: ${VIDEO_SAMPLE_FPS:-5}
+      VIDEO_MAX_DURATION_SECONDS: ${VIDEO_MAX_DURATION_SECONDS:-14400}
+      YOLO_CONFIDENCE: ${YOLO_CONFIDENCE:-0.3}
+      YOLO_IMAGE_SIZE: ${YOLO_IMAGE_SIZE:-640}
+      YOLO_TORCH_THREADS: ${YOLO_TORCH_THREADS:-2}
+      TABLE_CONFIDENCE: ${TABLE_CONFIDENCE:-0.2}
+    volumes:
+      - recordings:/recordings
+    shm_size: 512m
+    stop_grace_period: 20s
+    depends_on:
+      - node-mediamtx
+
+volumes:
+  recordings:

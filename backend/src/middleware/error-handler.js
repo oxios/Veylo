@@ -9,10 +9,8 @@ function errorHandler(error, _req, res, _next) {
   let normalized = error;
 
   if (error instanceof multer.MulterError) {
-    const message = error.code === "LIMIT_FILE_SIZE"
-      ? "PDF exceeds the 10 MB upload limit"
-      : error.message;
-    normalized = new ApiError(413, message, error.code);
+    const tooLarge = error.code === "LIMIT_FILE_SIZE";
+    normalized = new ApiError(tooLarge ? 413 : 400, tooLarge ? "Video exceeds the upload size limit" : error.message, error.code);
   } else if (error?.name === "ValidationError") {
     normalized = new ApiError(422, "Database validation failed", "VALIDATION_ERROR",
       Object.values(error.errors).map((item) => ({ path: item.path, message: item.message })));

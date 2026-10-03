@@ -1,5 +1,6 @@
 import { spawn } from "node:child_process";
 import http from "node:http";
+import net from "node:net";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
 
@@ -117,6 +118,25 @@ const server = http.createServer((request, response) => {
 
   request.on("aborted", () => proxyRequest.destroy());
   request.pipe(proxyRequest);
+});
+
+// Processing nodes may reach the API through this single entry point: pass WebSocket upgrades of /api/node/ws.
+server.on("upgrade", (request, socket, head) => {
+  if (!isApiRequest(request.url)) {
+    socket.destroy();
+    return;
+  }
+  const upstream = net.connect(Number(apiUpstream.port || 80), apiUpstream.hostname, () => {
+    const headers = Object.entries(request.headers)
+      .filter(([name]) => name.toLowerCase() !== "host")
+      .map(([name, value]) => `${name}: ${Array.isArray(value) ? value.join(", ") : value}`);
+    upstream.write([`${request.method} ${request.url} HTTP/1.1`, `host: ${apiUpstream.host}`, ...headers, "", ""].join("\r\n"));
+    if (head?.length) upstream.write(head);
+    upstream.pipe(socket);
+    socket.pipe(upstream);
+  });
+  upstream.on("error", () => socket.destroy());
+  socket.on("error", () => upstream.destroy());
 });
 
 server.listen(listenPort, "0.0.0.0", () => {

@@ -22,3 +22,5 @@ docker-compose*.yaml
 README.md
 docs
 tests
+storage
+video-worker

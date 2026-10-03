@@ -1,0 +1,45 @@
+# MediaMTX of a processing node: pulls cameras, records 24 h, serves playback to camera-node.
+# Reachable only inside the node's Docker network (no published ports). Paths are added by camera-node via the API.
+logLevel: info
+logDestinations: [stdout]
+readTimeout: 15s
+writeTimeout: 15s
+writeQueueSize: 1024
+
+authMethod: internal
+authInternalUsers:
+  - user: any
+    pass:
+    ips: []
+    permissions:
+      - action: publish
+      - action: read
+      - action: playback
+      - action: api
+
+api: true
+apiAddress: :9997
+metrics: false
+pprof: false
+
+playback: true
+playbackAddress: :9996
+
+rtsp: true
+rtspTransports: [tcp]
+rtspAddress: :8554
+rtmp: false
+hls: false
+webrtc: false
+srt: false
+moq: false
+
+pathDefaults:
+  # Video-only copy of the main stream (camera-node configures `c<id>_rec` with record: true).
+  recordPath: /recordings/%path/%Y-%m-%d_%H-%M-%S-%f
+  recordFormat: fmp4
+  recordPartDuration: 1s
+  recordSegmentDuration: 10m
+  recordDeleteAfter: 24h
+
+paths: {}

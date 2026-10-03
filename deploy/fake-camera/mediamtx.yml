@@ -1,0 +1,26 @@
+# Development-only RTSP "camera": loops a public test video as main (H.264 1280 wide) and sub (640 wide) streams.
+# Started with `docker compose --profile dev-camera up -d fake-camera`; RTSP at rtsp://fake-camera:8554/main.
+logLevel: warn
+authMethod: internal
+authInternalUsers:
+  - user: any
+    pass:
+    ips: []
+    permissions:
+      - action: publish
+      - action: read
+api: false
+rtsp: true
+rtspTransports: [tcp]
+rtmp: false
+hls: false
+webrtc: false
+srt: false
+moq: false
+paths:
+  main:
+    runOnInit: sh /fake/loop.sh main 1280
+    runOnInitRestart: true
+  sub:
+    runOnInit: sh /fake/loop.sh sub 640
+    runOnInitRestart: true

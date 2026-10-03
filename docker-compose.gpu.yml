@@ -1,0 +1,16 @@
+# Local processing node on an NVIDIA GPU (Docker Desktop with WSL2 GPU support or NVIDIA Container Toolkit).
+# Enable with COMPOSE_FILE=docker-compose.yml;docker-compose.gpu.yml in .env (":" instead of ";" on Linux/macOS).
+services:
+  camera-node:
+    build:
+      args:
+        TORCH_VARIANT: cu128
+    environment:
+      NODE_DEVICE: cuda
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu, utility, compute, video]
