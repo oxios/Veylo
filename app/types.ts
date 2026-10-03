@@ -142,7 +142,7 @@ export type LiveStats = {
 export type NowState = {
   status: CameraStatus;
   at: string | null;
-  now: { people: number; inHall: number | null; outside: number; elsewhere?: number; hidden?: number; tables: { id: string; occupied: boolean; sinceSec: number | null }[] } | null;
+  now: { people: number; inHall: number | null; outside: number; elsewhere?: number; hidden?: number; staffInHall?: number; tables: { id: string; occupied: boolean; sinceSec: number | null }[] } | null;
   today: { entries: number; exits: number; passersby: number };
 };
 
@@ -188,7 +188,7 @@ export type Visit = {
   durationSec: number;
   hallSec: number;
   tables: { id: string; label: string; sec: number }[];
-  enteredBy: "door" | "hall";
+  enteredBy: "door" | "hall" | "unseen";
   exitedBy: "door" | "lost" | null;
   recordable: boolean;
   path?: [number, number, number][];

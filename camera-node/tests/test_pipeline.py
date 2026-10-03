@@ -7,6 +7,8 @@ from pathlib import Path
 from app.pipeline import (
     appearance_quality,
     drop_duplicates,
+    HoldBook,
+    hold_eligible,
     rides_bicycle,
     shot_quality,
     inference_size,
@@ -197,6 +199,59 @@ class PasserbySamplingTest(unittest.TestCase):
             book.observe(10 + step * 0.2, [(5, 0.5, 0.5)])
         points = book.drain()[0]["points"]
         self.assertLess(len(points), 30)
+
+
+class RevivedIdTest(unittest.TestCase):
+    def test_a_revived_tracker_id_gets_a_new_key(self):
+        book = LiveTrackBook("s1")
+        for step in range(3):
+            book.observe(10 + step * 0.2, [(4, 0.5, 0.5)])
+        book.end(4, 11)
+        first = book.drain()[0]["key"]
+        for step in range(3):
+            book.observe(20 + step * 0.2, [(4, 0.5, 0.5)])
+        second = book.drain()[0]["key"]
+        self.assertEqual(first, "s1:4")
+        self.assertEqual(second, "s1:4r1")
+
+
+class HoldTest(unittest.TestCase):
+    NO_HOLD = {"zones": [[[0, 0], [0.155, 0], [0.2, 0.32], [0.065, 0.46], [0, 0.46]]], "line": [[0.06, 0.47], [0.2, 0.33]]}
+
+    def test_only_people_lost_in_the_room_are_held(self):
+        self.assertTrue(hold_eligible([0.45, 0.05, 0.55, 0.35], self.NO_HOLD))  # behind the showcase
+        self.assertFalse(hold_eligible([0.05, 0.1, 0.12, 0.4], self.NO_HOLD))  # in the doorway
+        self.assertFalse(hold_eligible([0.1, 0.2, 0.18, 0.43], self.NO_HOLD))  # at the threshold
+        self.assertFalse(hold_eligible([0.9, 0.5, 0.995, 0.9], self.NO_HOLD))  # left through the frame edge
+        self.assertTrue(hold_eligible([0.0, 0.5, 0.11, 0.8], self.NO_HOLD, stationary=True))  # seated at the edge
+
+    def test_stationary_means_sitting_still(self):
+        book = LiveTrackBook("s1")
+        for step in range(25):
+            book.observe(step * 0.2, [(1, 0.05 + step * 0.0005, 0.6), (2, 0.2 + step * 0.03, 0.6)])
+        self.assertTrue(book.stationary(1))
+        self.assertFalse(book.stationary(2))
+
+    def test_hold_survives_short_doubt_and_ends_when_the_spot_changes(self):
+        holds = HoldBook()
+        self.assertTrue(holds.start(7, [0.45, 0.05, 0.55, 0.35], 0))
+        self.assertTrue(holds.update(7, 0.8, [0.45, 0.05, 0.55, 0.35], 1))
+        self.assertTrue(holds.update(7, 0.3, [0.45, 0.05, 0.55, 0.35], 2))  # someone walked in front
+        self.assertTrue(holds.update(7, 0.3, [0.45, 0.05, 0.55, 0.35], 5))
+        self.assertFalse(holds.update(7, 0.3, [0.45, 0.05, 0.55, 0.35], 6.5))  # gone for 4.5 s → left
+        self.assertNotIn(7, holds.holds)
+
+    def test_one_hold_per_spot(self):
+        holds = HoldBook()
+        self.assertTrue(holds.start(2, [0.46, 0.01, 0.56, 0.31], 0))
+        self.assertFalse(holds.start(9, [0.42, 0.01, 0.56, 0.34], 5))
+        self.assertTrue(holds.start(11, [0.7, 0.4, 0.8, 0.7], 5))
+
+    def test_standing_up_hands_the_person_back_to_the_detector(self):
+        holds = HoldBook()
+        holds.start(7, [0.45, 0.05, 0.55, 0.35], 0)
+        self.assertEqual(holds.handoff([[30, 0.2, 0.5, 0.3, 0.9, 0.8]]), [])  # someone else, elsewhere
+        self.assertEqual(holds.handoff([[31, 0.44, 0.0, 0.56, 0.36, 0.7]]), [7])
 
 
 class DuplicateTest(unittest.TestCase):

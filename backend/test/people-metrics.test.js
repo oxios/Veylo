@@ -44,6 +44,8 @@ test("a guest number needs an entry through the threshold (30 s in the hall only
   assert.ok(pm.insideVenue(short), "10 s inside is enough to continue a known person's day");
   const long = pm.trackFacts(pm.absolutePoints(track(walk([[0.4, 0.5]], 31))), regions);
   assert.equal(pm.newPersonKind(long, { requireEntry: true }), null, "nobody materialises in the hall");
+  assert.equal(pm.newPersonKind(long, { requireEntry: true, nobodyHidden: true }), "guest_unseen", "inside before the camera started");
+  assert.equal(pm.newPersonKind(short, { requireEntry: true, nobodyHidden: true }), null);
   assert.equal(pm.newPersonKind(long, { requireEntry: false }), "guest");
   const barista = pm.trackFacts(pm.absolutePoints(track(walk([[0.9, 0.6]], 61))), regions);
   assert.equal(pm.newPersonKind(barista, { requireEntry: true }), "staff_candidate");

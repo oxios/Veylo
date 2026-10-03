@@ -358,7 +358,7 @@ export function PersonDrawer({ personId, cameras, staff, dayPersons, onClose, on
                       {index > 0 && <em>{index + 1}-й візит</em>}
                     </div>
                     <p className="muted small">
-                      {visit.enteredBy === "door" ? <><DoorOpen />зайшов через двері</> : <><UserRound />з’явився в залі</>}
+                      {visit.enteredBy === "door" ? <><DoorOpen />зайшов через двері</> : visit.enteredBy === "unseen" ? <><UserRound />вхід не зафіксовано (був у залі до запуску камери)</> : <><UserRound />з’явився в залі</>}
                       {visit.tables.length > 0 && <> · сидів: {visit.tables.map((table) => `${table.label} ${formatDuration(table.sec)}`).join(", ")}</>}
                       {visit.exitedBy === "door" && <> · <LogOut />вийшов через двері</>}
                       {visit.exitedBy === "lost" && <> · зник з кадру</>}

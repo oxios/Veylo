@@ -116,6 +116,126 @@ class TrackCollector:
 # ---- live tracks -------------------------------------------------------------------------------
 
 
+# ---- holding people the detector stopped seeing ----------------------------------------------------------------
+# A guest sits down behind the showcase: only legs and a bit of clothing stay visible and YOLO no longer calls it a
+# person. The node then "holds" the track: it keeps matching the last view of that spot (template matching) and keeps
+# the person present while it still matches. The hold ends when the person stands up (the detector sees someone there
+# again → handoff) or the spot stops matching (they left).
+
+HOLD_MIN_AGE = 3.0  # flicker tracks are not held
+STATIONARY_WINDOW = 4.0
+HOLD_KEEP_SCORE = 0.55
+HOLD_DROP_SCORE = 0.45
+HOLD_DROP_AFTER = 4.0  # seconds below HOLD_DROP_SCORE
+HOLD_MAX_SEC = 90 * 60
+HOLD_MAX = 6
+
+
+def _point_in_polygon(x: float, y: float, polygon: list[list[float]]) -> bool:
+    inside = False
+    j = len(polygon) - 1
+    for i in range(len(polygon)):
+        xi, yi = polygon[i]
+        xj, yj = polygon[j]
+        if (yi > y) != (yj > y) and x < (xj - xi) * (y - yi) / ((yj - yi) or 1e-9) + xi:
+            inside = not inside
+        j = i
+    return inside
+
+
+def _segment_distance(x: float, y: float, a: list[float], b: list[float]) -> float:
+    ax, ay = a
+    bx, by = b
+    dx, dy = bx - ax, by - ay
+    length = dx * dx + dy * dy
+    k = 0.0 if length == 0 else max(0.0, min(1.0, ((x - ax) * dx + (y - ay) * dy) / length))
+    return math.hypot(x - (ax + k * dx), y - (ay + k * dy))
+
+
+def hold_eligible(box: list[float], no_hold: dict | None, stationary: bool = False) -> bool:
+    """A lost person may be held only where people do not simply walk out of view: not at the frame edge (unless they
+    were sitting still there), not in the doorway / on the sidewalk, not at the threshold. box: normalised [x1, y1, x2, y2]."""
+    x1, y1, x2, y2 = box
+    if y2 - y1 < 0.08:
+        return False
+    if not stationary and (x1 < 0.015 or x2 > 0.985 or y2 > 0.985):
+        return False
+    fx, fy = (x1 + x2) / 2, y2
+    zones = (no_hold or {}).get("zones") or []
+    if any(_point_in_polygon(fx, fy, zone) for zone in zones):
+        return False
+    line = (no_hold or {}).get("line")
+    if line and _segment_distance(fx, fy, line[0], line[1]) < 0.06:
+        return False
+    return True
+
+
+@dataclass
+class _Hold:
+    box: list[float]
+    since: float
+    low_since: float | None = None
+
+
+class HoldBook:
+    """State of held tracks; the image matching itself happens in the live loop."""
+
+    def __init__(self):
+        self.holds: dict[int, _Hold] = {}
+
+    def start(self, track_id: int, box: list[float], t: float) -> bool:
+        if track_id in self.holds or len(self.holds) >= HOLD_MAX:
+            return False
+        # The spot is already held (the same seated person flickered into a new track): one box per person.
+        x1, y1, x2, y2 = box
+        for hold in self.holds.values():
+            hx1, hy1, hx2, hy2 = hold.box
+            ix = max(0.0, min(x2, hx2) - max(x1, hx1))
+            iy = max(0.0, min(y2, hy2) - max(y1, hy1))
+            union = (x2 - x1) * (y2 - y1) + (hx2 - hx1) * (hy2 - hy1) - ix * iy
+            if union > 0 and ix * iy / union >= 0.4:
+                return False
+        self.holds[track_id] = _Hold(box=list(box), since=t)
+        return True
+
+    def handoff(self, detected: list[list[float]]) -> list[int]:
+        """Holds whose spot the detector covers again (the person stood up): they end, the new track takes over.
+        detected: [[trackId, x1, y1, x2, y2, conf], ...]"""
+        ended = []
+        for track_id, hold in list(self.holds.items()):
+            hx1, hy1, hx2, hy2 = hold.box
+            hfx, hfy = (hx1 + hx2) / 2, hy2
+            for _, x1, y1, x2, y2, _conf in detected:
+                ix = max(0.0, min(hx2, x2) - max(hx1, x1))
+                iy = max(0.0, min(hy2, y2) - max(hy1, y1))
+                area = max(1e-9, (hx2 - hx1) * (hy2 - hy1))
+                if ix * iy / area >= 0.3 and math.hypot((x1 + x2) / 2 - hfx, y2 - hfy) <= 0.12:
+                    ended.append(track_id)
+                    del self.holds[track_id]
+                    break
+        return ended
+
+    def update(self, track_id: int, score: float, box: list[float], t: float) -> bool:
+        """Applies one match result; returns whether the person is still held (present)."""
+        hold = self.holds.get(track_id)
+        if hold is None:
+            return False
+        if t - hold.since > HOLD_MAX_SEC:
+            del self.holds[track_id]
+            return False
+        if score >= HOLD_KEEP_SCORE:
+            hold.box = list(box)
+            hold.low_since = None
+            return True
+        if score < HOLD_DROP_SCORE:
+            if hold.low_since is None:
+                hold.low_since = t
+            if t - hold.low_since >= HOLD_DROP_AFTER:
+                del self.holds[track_id]
+                return False
+        return True  # uncertain for a moment: still there
+
+
 def drop_duplicates(boxes: list[list[float]], min_iou: float = 0.45, min_contain: float = 0.85) -> list[list[float]]:
     """One person, two boxes: YOLO sometimes returns a tight box and a wider "person + chair" box around a seated
     person (IoU ~0.55, below NMS's 0.7), and the tracker gives each its own id. A box lying almost entirely inside
@@ -206,6 +326,7 @@ class _LiveTrack:
     max_conf: float = 0.0  # best detection confidence (night reflections stay low)
     max_conf_sent: float = 0.0
     bike_frames: int = 0  # frames where this person was on a bicycle
+    recent: list = field(default_factory=list)  # (t, x, y) of the last few seconds
     bike_sent: bool = False
 
 
@@ -230,15 +351,22 @@ class LiveTrackBook:
         self.lost_after = lost_after
         self.min_points = min_points
         self.tracks: dict[int, _LiveTrack] = {}
+        self.generations: dict[int, int] = {}  # the tracker may revive an id after we closed its track
 
     def observe(self, t: float, people: list[tuple[int, float, float]], kind: str = "person") -> None:
         for track_id, x, y in people:
             track = self.tracks.get(track_id)
             if track is None or track.final:
-                track = _LiveTrack(key=f"{self.session}:{track_id}", start=t, last_seen=t, kind=kind)
+                generation = self.generations.get(track_id, 0)
+                self.generations[track_id] = generation + 1
+                key = f"{self.session}:{track_id}" if generation == 0 else f"{self.session}:{track_id}r{generation}"
+                track = _LiveTrack(key=key, start=t, last_seen=t, kind=kind)
                 self.tracks[track_id] = track
             track.last_seen = t
             track.x, track.y = x, y
+            track.recent.append((t, x, y))
+            while track.recent and t - track.recent[0][0] > STATIONARY_WINDOW:
+                track.recent.pop(0)
             if t - track.start < self.dense_start or t - track.last_point >= self.point_interval:
                 track.points.append([round(t - track.start, 2), x, y])
                 track.total += 1
@@ -248,6 +376,21 @@ class LiveTrackBook:
         track = self.tracks.get(track_id)
         if track is not None and conf > track.max_conf:
             track.max_conf = conf
+
+    def stationary(self, track_id: int) -> bool:
+        """Sat or stood still for the last seconds (a seated guest), as opposed to walking out of view."""
+        track = self.tracks.get(track_id)
+        if track is None or len(track.recent) < 3 or track.recent[-1][0] - track.recent[0][0] < STATIONARY_WINDOW * 0.6:
+            return False
+        xs = [point[1] for point in track.recent]
+        ys = [point[2] for point in track.recent]
+        return max(xs) - min(xs) < 0.03 and max(ys) - min(ys) < 0.03
+
+    def end(self, track_id: int, t: float) -> None:
+        """The track is over now (a hold ended or handed over to a new detector track)."""
+        track = self.tracks.get(track_id)
+        if track is not None and not track.final:
+            track.final = True
 
     def mark_bike(self, track_id: int) -> None:
         track = self.tracks.get(track_id)

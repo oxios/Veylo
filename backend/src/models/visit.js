@@ -13,7 +13,8 @@ const visitSchema = new mongoose.Schema({
   lastSeenAt: { type: Date, required: true },
   endAt: { type: Date, default: null },
   active: { type: Boolean, default: true },
-  enteredBy: { type: String, enum: ["door", "hall"], default: "hall" },
+  // "unseen" = was already inside when tracking started (or the entry was missed); "hall" = continued in the hall.
+  enteredBy: { type: String, enum: ["door", "hall", "unseen"], default: "hall" },
   exitedBy: { type: String, enum: ["door", "lost", null], default: null },
   hallSec: { type: Number, default: 0 },
   staffSec: { type: Number, default: 0 },

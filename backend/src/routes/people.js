@@ -47,7 +47,7 @@ async function guestCameras(venue, ownerId) {
 
 function personView(person, extra = {}) {
   return {
-    id: String(person._id),
+    id: String(person._id ?? person.id), // lean docs have _id, toObject() output has id
     no: person.no,
     role: person.role,
     staffId: person.staffId ? String(person.staffId) : null,
@@ -198,8 +198,10 @@ venues.get("/:venueId/guests", validate(schemas.dayQuery, "query"), asyncHandler
     nowInHall = 0;
     for (const camera of cameras) {
       const state = getNow(camera._id);
-      if (state) nowInHall += nowState({ camera, people: state.people }).inHall ?? 0;
-      if (camera.entryLine) nowInHall += await people.hiddenInside(camera._id);
+      if (state) {
+        const presence = await people.presenceNow(camera, nowMs);
+        nowInHall += presence.visible + presence.hidden;
+      }
     }
   }
   const lastWeekHadData = lastWeek > 0;

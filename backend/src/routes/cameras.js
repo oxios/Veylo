@@ -18,7 +18,7 @@ const { aggregateStats, nowState, periodRange, startOfLocalDay, HOUR_MS } = requ
 const { getNow, markHistoryDirty, recomputeProgress } = require("../services/live-pipeline");
 const { assignCamera, cameraStatus, camerasWithStatus, hubPath, isNodeOnline, notifyConfig, pickNode } = require("../services/nodes");
 const { ownedCamera } = require("../services/ownership");
-const { hiddenInside, labelFrame } = require("../services/people");
+const { labelFrame, presenceNow } = require("../services/people");
 const { detectVideoFormat, newStorageKey, readHeader, removeQuietly, storagePath } = require("../services/video-files");
 const { computeCameraMetrics } = require("../services/video-metrics");
 const ApiError = require("../utils/api-error");
@@ -263,8 +263,13 @@ async function nowPayload(camera, node, timeZone) {
   const status = cameraStatus(camera, node);
   const state = getNow(camera._id);
   const now = state ? nowState({ camera, people: state.people, tableSince: state.tableSince }) : null;
-  // Entered guests out of the camera's sight are still inside (see services/people.hiddenInside).
-  if (now && now.inHall !== null && camera.entryLine) now.hidden = await hiddenInside(camera._id);
+  // Guests in the hall from live tracks: visible + entered-but-hidden; staff are not counted (services/people.presenceNow).
+  if (now && now.inHall !== null) {
+    const presence = await presenceNow(camera);
+    now.inHall = presence.visible;
+    now.hidden = presence.hidden;
+    now.staffInHall = presence.staffInHall;
+  }
   return { status, at: state ? new Date(state.at).toISOString() : null, now, today: await todayTotals(camera, timeZone) };
 }
 

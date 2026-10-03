@@ -88,10 +88,13 @@ function trackFacts(points, regions) {
  *  - "staff_candidate" — stood behind the counter for a minute (staff may be inside before the camera started);
  *  - null — someone already inside whom the tracker lost; they must continue a known person instead.
  */
-function newPersonKind(facts, { requireEntry }) {
+function newPersonKind(facts, { requireEntry, nobodyHidden = false }) {
   if (facts.entryAt !== null) return "guest";
   if (facts.staffSec >= STAFF_ZONE_SEC) return "staff_candidate";
   if (!requireEntry && facts.hallSec >= GUEST_HALL_SEC) return "guest";
+  // Nobody who entered is out of sight, yet someone has been in the hall for 30 s: they were inside before the
+  // camera started (or the entry was missed) — a guest whose entry was not seen, marked as such.
+  if (requireEntry && nobodyHidden && facts.hallSec >= GUEST_HALL_SEC) return "guest_unseen";
   return null;
 }
 

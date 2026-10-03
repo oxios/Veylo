@@ -40,6 +40,11 @@ async function buildNodeConfig(node, CameraModel = Camera) {
       sub,
       analysis: camera.analysisStream === "main" || !sub ? "main" : "sub",
       hubPath: hubPath(camera._id),
+      // Where a lost person must NOT be held as "still here, just hidden": the doorway / sidewalk and the threshold.
+      noHold: {
+        zones: [camera.doorZone, camera.streetZone].filter((zone) => zone?.points?.length >= 3).map((zone) => zone.points.map(({ x, y }) => [x, y])),
+        line: camera.entryLine ? [[camera.entryLine.a.x, camera.entryLine.a.y], [camera.entryLine.b.x, camera.entryLine.b.y]] : null,
+      },
     });
   }
   channel.setNodeCameras(node._id, items.map((item) => item.id));

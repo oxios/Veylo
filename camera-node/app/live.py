@@ -18,8 +18,9 @@ from .media import Publisher, grab_jpeg, hub_publish_url, probe_stream, save_per
 from .detector import BICYCLE, PERSON
 from .pipeline import (
     RTSP_MESSAGES, CoverageCounter, LiveTrackBook, TableClusterer, appearance_quality, foot_point, inference_size, normalized_box,
-    drop_duplicates, path_available, path_names, rides_bicycle, shot_quality,
+    HOLD_MIN_AGE, HoldBook, drop_duplicates, hold_eligible, path_available, path_names, rides_bicycle, shot_quality,
 )
+HELD = 2  # frame box marker: a person held while the detector does not see them
 
 if TYPE_CHECKING:
     from .agent import Agent
@@ -164,6 +165,7 @@ class CameraWorker(threading.Thread):
         )
         self.aux = ThreadPoolExecutor(max_workers=1, thread_name_prefix=f"aux-{self.camera_id[-6:]}")
         self.aux_busy = False
+        self._hold_views: dict[int, np.ndarray] = {}
         self.clusterer = TableClusterer()
         self.snapshot_due = 0.0
         self.tables_due = time.time() + 45
@@ -241,6 +243,9 @@ class CameraWorker(threading.Thread):
         model = self.agent.detector.new_model()
         reid = self.agent.settings.reid_model is not None
         book = LiveTrackBook(session=uuid.uuid4().hex[:10])
+        holds = HoldBook()
+        views: dict[int, tuple[list[float], np.ndarray]] = {}  # last box + grey crop of every visible person
+        no_hold = self.config.get("noHold")
         coverage = CoverageCounter()
         settings = self.agent.settings
         interval = 1.0 / settings.live_fps
@@ -271,6 +276,7 @@ class CameraWorker(threading.Thread):
                         box = [track_id, *normalized_box(xyxy, width, height), round(confidence, 2)]
                         (bike_boxes if cls == BICYCLE else frame_boxes).append(box)
                 frame_boxes = drop_duplicates(frame_boxes)
+                held_boxes = self._hold_people(frame, t, book, holds, views, frame_boxes, no_hold)
                 for track_id, x1, y1, x2, y2, _confidence in frame_boxes:
                     people.append((track_id, round((x1 + x2) / 2, 4), round(y2, 4)))
                 for track_id, x1, y1, x2, y2, _confidence in bike_boxes:
@@ -294,7 +300,8 @@ class CameraWorker(threading.Thread):
                     ref = book.add_appearance(track_id, None, t, [x1, y1, x2, y2], shot_quality([x1, y1, x2, y2], confidence))
                     if ref:
                         save_person_crop(self.agent.settings.shots_dir, ref, frame, [x1, y1, x2, y2])
-                frame_boxes += [[*box, BICYCLE] for box in bike_boxes]
+                book.observe(t, [(box[0], round((box[1] + box[3]) / 2, 4), round(box[4], 4)) for box in held_boxes])
+                frame_boxes += [[*box, BICYCLE] for box in bike_boxes] + [[*box, HELD] for box in held_boxes]
                 book.expire(t)
                 coverage.mark(t)
                 self.fps.tick(t)
@@ -318,6 +325,56 @@ class CameraWorker(threading.Thread):
             final = self._batch(book, coverage, time.time())
             if final["tracks"] or final["coverage"]:
                 self.uploader.submit(final)
+
+    def _hold_people(self, frame, t, book, holds, views, visible, no_hold) -> list[list[float]]:
+        """Keeps people present whom the detector lost in the middle of the room (see pipeline.HoldBook):
+        the last view of each lost person is searched for around its last place on every frame."""
+        height, width = frame.shape[:2]
+        grey = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        visible_ids = {box[0] for box in visible}
+        # People who just disappeared become holds (if they were real, long enough and away from doors/edges).
+        for track_id in list(views):
+            if track_id in visible_ids:
+                continue
+            box, crop = views.pop(track_id)
+            track = book.tracks.get(track_id)
+            if track is None or track.final or track.last_seen - track.start < HOLD_MIN_AGE or t - track.last_seen > 1.0:
+                continue
+            if hold_eligible(box, no_hold, book.stationary(track_id)) and holds.start(track_id, box, t):
+                self._hold_views[track_id] = crop
+        # Someone stood up there → the detector's new track takes over; the held one ends right now.
+        for track_id in holds.handoff(visible):
+            self._hold_views.pop(track_id, None)
+            book.end(track_id, t)
+        held = []
+        for track_id, hold in list(holds.holds.items()):
+            template = self._hold_views.get(track_id)
+            if template is None:
+                holds.holds.pop(track_id, None)
+                continue
+            x1, y1, x2, y2 = hold.box
+            pad_x, pad_y = (x2 - x1) * 0.3, (y2 - y1) * 0.3
+            left, right = max(0, int((x1 - pad_x) * width)), min(width, int((x2 + pad_x) * width))
+            top, bottom = max(0, int((y1 - pad_y) * height)), min(height, int((y2 + pad_y) * height))
+            region = grey[top:bottom, left:right]
+            score, place = 0.0, (int(x1 * width) - left, int(y1 * height) - top)
+            if region.shape[0] >= template.shape[0] and region.shape[1] >= template.shape[1]:
+                result = cv2.matchTemplate(region, template, cv2.TM_CCOEFF_NORMED)
+                _, score, _, place = cv2.minMaxLoc(result)
+            bw, bh = template.shape[1] / width, template.shape[0] / height
+            box = [(left + place[0]) / width, (top + place[1]) / height, (left + place[0]) / width + bw, (top + place[1]) / height + bh]
+            if holds.update(track_id, float(score), [round(value, 4) for value in box], t):
+                held.append([track_id, *[round(value, 4) for value in hold.box], round(float(score), 2)])
+            else:
+                self._hold_views.pop(track_id, None)
+                book.end(track_id, t)
+        # Remember how every visible person looks right now (the view a hold would start from).
+        for track_id, x1, y1, x2, y2, _conf in visible:
+            left, right = max(0, int(x1 * width)), min(width, int(x2 * width))
+            top, bottom = max(0, int(y1 * height)), min(height, int(y2 * height))
+            if right - left >= 8 and bottom - top >= 8:
+                views[track_id] = ([x1, y1, x2, y2], grey[top:bottom, left:right].copy())
+        return held
 
     def _batch(self, book: LiveTrackBook, coverage: CoverageCounter, now: float) -> dict:
         return {

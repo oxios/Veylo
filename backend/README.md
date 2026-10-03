@@ -148,7 +148,8 @@ are stored separately: a period without coverage is a gap (`null`), never a zero
   Rules: line crossings with 0.015 hysteresis; a passer-by is a finished track that was in the zone (for
   hybrid ≥ 60 % of its points in the door opening) and never crossed the line; a table is occupied in
   sessions ≥ 60 s (gaps < 30 s merged) by foot points inside the table polygon expanded ×1.35.
-- `GET /api/cameras/:cameraId/now` → `{ live: { status, at, now: { people, inHall (everyone inside except the doorway and the staff zone), outside, elsewhere (staff zone), hidden, tables[{id,
+- `GET /api/cameras/:cameraId/now` → `{ live: { status, at, now: { people, inHall (guests on live tracks + people not numbered yet, outside the doorway and staff zone; staff are
+  not counted), outside, elsewhere (staff zone), staffInHall, hidden (entered guests out of sight beyond the unnumbered), tables[{id,
   occupied, sinceSec}] } | null, today: { entries, exits, passersby } } }`.
 - `GET /api/cameras/:cameraId/live/stream` — Server-Sent Events: `frame` `{ t, session, people: [[trackId, x1, y1,
   x2, y2, conf]], labels? }` (~5/s) and `state` (same as `/now`, every 2 s). `labels` maps a trackId to the person
@@ -180,7 +181,8 @@ are stored separately: a period without coverage is a gap (`null`), never a zero
 ### Guests and staff
 
 People of the day are built from live tracks of indoor/hybrid cameras. A track becomes "Гість №N" (numbers restart
-every venue-local day) only after crossing the entry line inward (cameras without a line: 30 s in the hall); 60 s in
+every venue-local day) only after crossing the entry line inward (cameras without a line: 30 s in the hall; someone
+30 s in the hall while no entered person is out of sight gets a number with `enteredBy: "unseen"`); 60 s in
 the staff zone makes a "who is this?" review instead. A hall track without an entry continues someone already
 inside: the track that vanished there (≤ 20 s nearby, ≤ 3 min on the same spot), the same appearance, or a guest who
 entered and is out of sight (`hidden` in `/now`: open visits not on any visible track, added to "in the hall"). Nodes with ReID send an appearance vector per track (clothes/silhouette, no face, no image); a new
@@ -251,7 +253,9 @@ otherwise it is a new visit. Vectors are never returned to the browser and are e
   appended only when `from` matches the stored count). `feat` = L2-normalised mean ReID embedding of the track's
   clean frames (64–1024 values), `featN` = frames in it, `shot` = `{ at (ms), box [x1,y1,x2,y2], score, ref }` — the
   best frame, whose crop the node keeps under `ref` (`<session>_<trackId>`); `conf` = the best detection confidence (passers-by need ≥ 0.45), `cls: "bicycle"` marks bicycle tracks (only
-  passer-by counts use them), `bike: true` a person riding a bicycle. Frames carry bicycles as `[id, x1, y1, x2, y2, conf, 1]`. The reply comes after the batch's
+  passer-by counts use them), `bike: true` a person riding a bicycle. Frames carry bicycles as `[id, x1, y1, x2, y2, conf, 1]` and people held behind an obstacle (the detector lost them in the
+  middle of the room, the node keeps matching the visible part of their last view) as `[id, x1, y1, x2, y2, score, 2]`.
+  Heartbeat config cameras carry `noHold { zones, line }` (doorway/sidewalk polygons and the threshold) where nobody is held. The reply comes after the batch's
   tracks were assigned to people. `409 CAMERA_NOT_ASSIGNED` for foreign cameras.
 - `POST /api/node/cameras/:id/snapshot` (`image/jpeg`), `POST /api/node/cameras/:id/tables`.
 - `POST /api/node/clips/:clipId` (MP4 body), `POST /api/node/clips/:clipId/fail`.

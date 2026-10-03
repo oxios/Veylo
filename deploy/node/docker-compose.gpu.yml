@@ -6,6 +6,8 @@ services:
         TORCH_VARIANT: cu128
     environment:
       NODE_DEVICE: cuda
+      # A passer-by is in the door glass for under a second: at 5 fps most are missed (measured 3 of ~10), at 10 fps 9 of ~10.
+      LIVE_SAMPLE_FPS: ${GPU_LIVE_SAMPLE_FPS:-10}
     deploy:
       resources:
         reservations:

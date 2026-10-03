@@ -225,7 +225,7 @@ export function GuestsPage({ venue, cameras, go }: PageContext) {
                           <span>{guestName(visit.no)}</span>
                         </button>
                       </td>
-                      <td className="num">{formatTime(visit.startAt)}{visit.enteredBy === "door" && <DoorOpen className="inline-icon" aria-label="через двері" />}</td>
+                      <td className="num">{formatTime(visit.startAt)}{visit.enteredBy === "door" && <DoorOpen className="inline-icon" aria-label="через двері" />}{visit.enteredBy === "unseen" && <span className="unseen-mark" title="Вхід не зафіксовано: був у залі до запуску камери або вхід пропущено">?</span>}</td>
                       <td className="num">{visit.active ? "—" : formatTime(visit.endAt)}</td>
                       <td className="num"><span className="dur">{formatDuration(visit.durationSec)}<i style={{ width: `${Math.max(4, (visit.durationSec / maxSec) * 100)}%` }} /></span></td>
                       <td>{visit.tables.length ? visit.tables.slice(0, 2).map((table) => <span key={table.id} className="table-chip">{table.label} · {formatDuration(table.sec)}</span>) : <span className="muted small">—</span>}</td>

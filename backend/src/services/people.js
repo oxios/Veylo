@@ -48,6 +48,10 @@ function rememberTrack(cameraId, key, personId) {
   const id = String(cameraId);
   if (!trackPeople.has(id)) trackPeople.set(id, new Map());
   trackPeople.get(id).set(key, String(personId));
+  // A tracker id revived after the node closed its track gets the key "<session>:<id>r<n>"; live frames only carry the
+  // id, so the plain key points at the newest generation.
+  const plain = key.replace(/r\d+$/, "");
+  if (plain !== key) trackPeople.get(id).set(plain, String(personId));
 }
 
 function rememberPerson(person, visitStart) {
@@ -90,7 +94,7 @@ async function labelFrame(cameraId, frame) {
 
 // ---- assigning tracks to people ----
 
-async function attachToVisit({ person, track, facts, camera, day }) {
+async function attachToVisit({ person, track, facts, camera, day, unseen = false }) {
   const lastVisit = await Visit.findOne({ personId: person._id }).sort({ startAt: -1 });
   const startSec = new Date(track.startAt).getTime() / 1000;
   if (lastVisit && pm.continuesVisit(lastVisit, startSec)) {
@@ -107,7 +111,7 @@ async function attachToVisit({ person, track, facts, camera, day }) {
     day,
     startAt: new Date((facts.entryAt ?? facts.firstAt) * 1000),
     lastSeenAt: track.endAt,
-    enteredBy: facts.entryAt !== null ? "door" : "hall",
+    enteredBy: facts.entryAt !== null ? "door" : unseen ? "unseen" : "hall",
     trackKeys: [track.key],
   });
   await Person.updateOne({ _id: person._id }, { $inc: { visitCount: 1 } });
@@ -256,6 +260,7 @@ async function processTrack({ camera, key, timeZone, nowMs }) {
   if (!person && !pm.insideVenue(facts)) return;
 
   let decision = { decision: "none", personId: null, sim: 0 };
+  let newKind = null;
   if (!person && featReady) {
     const people = await Person.find({ venueId: camera.venueId, day, vecN: { $gt: 0 } }).select("+vec +gallery role staffId no lastSeenAt").lean();
     // A person cannot be on two tracks of the same camera at once.
@@ -273,6 +278,7 @@ async function processTrack({ camera, key, timeZone, nowMs }) {
 
   // Not a new arrival (no entry) → someone already inside who is hidden from the camera right now: a guest behind
   // the showcase, a staff member who walked from the hall to behind the counter.
+  let nobodyHidden = true;
   if (!person && facts.entryAt === null && (regions.line || regions.inStaff)) {
     const hidden = await hiddenPeople(camera._id, new Date(track.startAt).getTime() + 1000, key);
     const start = { x: points[0][1], y: points[0][2] };
@@ -284,11 +290,15 @@ async function processTrack({ camera, key, timeZone, nowMs }) {
       sim: featReady ? pm.personSimilarity(track.feat, item.person) : null,
     })));
     if (pick) person = await Person.findById(pick.personId).select("+vec +gallery");
+    // "Entry not seen" only when nobody who is inside is out of sight. A candidate rejected by appearance (a seated,
+    // half-hidden guest looks different from her standing self) must not turn into a second number for her.
+    nobodyHidden = hidden.length === 0;
   }
 
   if (!person) {
-    const kind = pm.newPersonKind(facts, { requireEntry: Boolean(regions.line) });
+    const kind = pm.newPersonKind(facts, { requireEntry: Boolean(regions.line), nobodyHidden });
     if (!kind) return;
+    newKind = kind;
     const ageSec = nowMs / 1000 - facts.firstAt;
     if (!featReady && ageSec < FEAT_WAIT_SEC && !track.final) return; // give the node a moment to send the vector
     const { to } = pm.dayRange(day, timeZone);
@@ -318,7 +328,7 @@ async function processTrack({ camera, key, timeZone, nowMs }) {
   }
 
   await LiveTrack.updateOne({ _id: track._id }, { $set: { personId: person._id } });
-  const visit = await attachToVisit({ person, track, facts, camera, day });
+  const visit = await attachToVisit({ person, track, facts, camera, day, unseen: facts.entryAt === null && newKind === "guest_unseen" });
   rememberTrack(camera._id, key, person._id);
   rememberPerson(await Person.findById(person._id).lean(), new Date(visit.startAt).getTime());
 }
@@ -405,6 +415,36 @@ async function hiddenInside(cameraId, nowMs = Date.now()) {
   return (await hiddenPeople(cameraId, nowMs - 5000, null, ["guest"])).length;
 }
 
+/**
+ * Guests in the hall right now, from the tracks of the last seconds:
+ *  visible = guests on a live track + people on a track not yet given a number (often a hidden guest who reappeared);
+ *  hidden  = guests with an open visit and no live track, beyond those unnumbered people (they are probably them);
+ *  staff anywhere and everyone in the doorway / staff zone are not guests in the hall.
+ */
+async function presenceNow(camera, nowMs = Date.now()) {
+  const regions = cameraRegions(camera);
+  const since = nowMs - 6000;
+  const recent = await LiveTrack.find({ cameraId: camera._id, final: false, endAt: { $gte: new Date(since) }, cls: { $ne: "bicycle" } })
+    .select("personId").slice("points", -1).lean();
+  const roles = new Map((await Person.find({ _id: { $in: recent.filter((item) => item.personId).map((item) => item.personId) } }).select("role").lean())
+    .map((person) => [String(person._id), person.role]));
+  const guests = new Set();
+  let unnumbered = 0;
+  let staff = 0;
+  for (const track of recent) {
+    const point = track.points?.[0];
+    if (!point) continue;
+    const p = { x: point[1], y: point[2] };
+    if (regions.inPass(p) || regions.inStaff?.(p)) continue;
+    const role = track.personId ? roles.get(String(track.personId)) : null;
+    if (!track.personId) unnumbered += 1;
+    else if (role === "staff") staff += 1;
+    else guests.add(String(track.personId));
+  }
+  const hidden = camera.entryLine ? (await hiddenPeople(camera._id, since, null, ["guest"])).length : 0;
+  return { visible: guests.size + unnumbered, hidden: Math.max(0, hidden - unnumbered), staffInHall: staff };
+}
+
 // Appearance vectors are erased once their day is over (+ a short grace period for late batches).
 async function expireVectors(nowMs = Date.now()) {
   const now = new Date(nowMs);
@@ -488,6 +528,7 @@ module.exports = {
   processTracks,
   refreshVisits,
   hiddenInside,
+  presenceNow,
   expireVectors,
   labelFrame,
   assignRole,

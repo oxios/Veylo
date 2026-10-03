@@ -44,6 +44,10 @@ people hidden behind someone) with ReID `REID_MODEL_PATH` (`yolo26s-reid.onnx`, 
 frames of a track (not overlapping anyone, ≥ 12 % of the frame tall, conf ≥ 0.45) give its appearance vector and
 the best crop (`RECORDINGS_DIR/_shots`, survives restarts, deleted together with the archive). `SAM_MODEL_PATH` (`sam2.1_b.pt`) outlines
 furniture for the markup editor; it is loaded on first use. All models are downloaded at image build time.
+Holding (`pipeline.HoldBook`): a person lost in the middle of the room (not at the frame edge, doorway or threshold,
+tracked ≥ 3 s) stays present while the visible part of their last view still matches around the same place (template
+matching ≥ 0.55; < 0.45 for 4 s ends the hold); when the detector sees someone standing up there, its new track takes
+over. This keeps a guest seated behind the showcase (only legs visible) in the room, at the table and on the same number.
 Two boxes on one person (a tight one and a wider "person + chair" one, IoU ~0.55 — below NMS) are folded into the
 older track (`pipeline.drop_duplicates`: IoU ≥ 0.45 and ≥ 85 % of the smaller box inside the larger). Classes person
 and bicycle are tracked; bicycles are sent with `cls: "bicycle"`, riders with `bike: true`. A track starts at
