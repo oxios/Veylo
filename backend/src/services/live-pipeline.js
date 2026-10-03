@@ -39,6 +39,7 @@ function identityFields(track, nowMs) {
   if (track.shot) fields.shot = { at: new Date(track.shot.at), box: track.shot.box, score: track.shot.score, ref: track.shot.ref };
   if (track.cls) fields.cls = track.cls;
   if (track.bike) fields.bike = true;
+  if (track.conf !== undefined) fields.maxConf = track.conf;
   return fields;
 }
 
@@ -133,7 +134,7 @@ async function rollupOnce({ nowMs = Date.now(), limit = 25 } = {}) {
       cameraId: doc.cameraId,
       startAt: { $lt: new Date(hour + HOUR_MS + CONTEXT_MS) },
       endAt: { $gte: new Date(hour - CONTEXT_MS) },
-    }).select("startAt endAt final points cls bike").lean();
+    }).select("startAt endAt final points cls bike maxConf").lean();
     const stats = computeHourStats({ hourStartMs: hour, camera, tracks, nowMs });
     const set = { ...stats, computedAt: new Date(nowMs), markupVersion: camera.markupVersion || 0 };
     const result = await CameraHour.collection.updateOne({ _id: doc._id, dirtyAt: doc.dirtyAt }, { $set: { ...set, dirty: false } });

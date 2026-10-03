@@ -127,6 +127,7 @@ async function updatePersonFromTrack(person, track, camera, { mergeVector }) {
     const merged = pm.mergeVectors(person.vec, person.vecN || 0, track.feat, Math.min(track.featN, 50));
     update.vec = merged.vec;
     update.vecN = merged.n;
+    update.gallery = pm.addToGallery(person.gallery, track.feat);
   }
   if (betterShot(person.shot, track.shot)) update.shot = { cameraId: camera._id, at: track.shot.at, box: track.shot.box, score: track.shot.score, ref: track.shot.ref };
   await Person.updateOne({ _id: person._id }, { $set: update });
@@ -157,20 +158,35 @@ async function continuedPerson({ camera, track, points, regions }) {
     endAt: { $gt: new Date(startMs + 1000) },
   });
   if (busy) return null;
-  const person = await Person.findById(pick.personId).select("+vec");
+  const person = await Person.findById(pick.personId).select("+vec +gallery");
   if (!person) return null;
   const featReady = (track.featN || 0) >= FEAT_MIN_SAMPLES && track.feat?.length;
-  if (featReady && person.vec?.length && pm.cosine(track.feat, person.vec) < STITCH_SIM) return null;
+  const sim = featReady ? pm.personSimilarity(track.feat, person) : null;
+  if (sim !== null && sim < STITCH_SIM) return null;
   return person;
 }
 
-// Open visits of this camera's guests who are not on any track right now (see pm.pickHidden).
-async function hiddenGuests(cameraId, sinceMs, excludeKey) {
+// Open visits of this camera's people (guests and staff) who are not on any track right now (see pm.pickHidden).
+const STAFF_AWAY_MS = 30 * 60_000; // staff out of sight (kitchen, storeroom) stay candidates this long
+
+async function hiddenPeople(cameraId, sinceMs, excludeKey, roles = ["guest", "staff"]) {
   const visits = await Visit.find({ cameraId, active: true }).select("personId trackKeys").lean();
+  // Staff of the day seen on this camera recently are candidates even after their visit closed.
+  if (roles.includes("staff")) {
+    const open = new Set(visits.map((visit) => String(visit.personId)));
+    const recentStaff = await LiveTrack.aggregate([
+      { $match: { cameraId, personId: { $ne: null }, endAt: { $gte: new Date(sinceMs - STAFF_AWAY_MS) } } },
+      { $group: { _id: "$personId", keys: { $push: "$key" } } },
+    ]);
+    const staffIds = new Set((await Person.find({ _id: { $in: recentStaff.map((item) => item._id) }, role: "staff" }).select("_id").lean()).map((item) => String(item._id)));
+    for (const item of recentStaff) {
+      if (staffIds.has(String(item._id)) && !open.has(String(item._id))) visits.push({ personId: item._id, trackKeys: item.keys });
+    }
+  }
   if (!visits.length) return [];
   const personIds = visits.map((visit) => visit.personId);
   const [guests, visible] = await Promise.all([
-    Person.find({ _id: { $in: personIds }, role: "guest" }).select("+vec").lean(),
+    Person.find({ _id: { $in: personIds }, role: { $in: roles } }).select("+vec +gallery").lean(),
     LiveTrack.find({ cameraId, personId: { $in: personIds }, key: { $ne: excludeKey }, endAt: { $gt: new Date(sinceMs) } }).select("personId").lean(),
   ]);
   const seen = new Set(visible.map((item) => String(item.personId)));
@@ -186,11 +202,43 @@ async function hiddenGuests(cameraId, sinceMs, excludeKey) {
   return result;
 }
 
+// The same person on two tracks at once in different places means this (newer) track was attached wrongly: it is
+// detached and goes through matching again (where that person is now "busy").
+async function resolveConflict(camera, track) {
+  const ends = (item) => {
+    const last = item.points?.at(-1);
+    return last ? { x: last[1], y: last[2] } : null;
+  };
+  const mine = ends(track);
+  if (!mine) return false;
+  const others = await LiveTrack.find({
+    cameraId: camera._id,
+    personId: track.personId,
+    key: { $ne: track.key },
+    startAt: { $lt: track.startAt },
+    endAt: { $gt: new Date(new Date(track.startAt).getTime() + 1000) },
+  }).select("key startAt endAt").slice("points", -1).lean();
+  const sec = (date) => new Date(date).getTime() / 1000;
+  const conflict = others.some((other) => {
+    const point = ends(other);
+    return point && pm.concurrentConflict(
+      { startSec: sec(track.startAt), endSec: sec(track.endAt), ...mine },
+      { startSec: sec(other.startAt), endSec: sec(other.endAt), ...point },
+    );
+  });
+  if (!conflict) return false;
+  await LiveTrack.updateOne({ _id: track._id }, { $set: { personId: null } });
+  await Visit.updateMany({ personId: track.personId, trackKeys: track.key }, { $pull: { trackKeys: track.key } });
+  trackPeople.get(String(camera._id))?.delete(track.key);
+  return true;
+}
+
 async function processTrack({ camera, key, timeZone, nowMs }) {
-  const track = await LiveTrack.findOne({ cameraId: camera._id, key }).select("+feat").lean();
+  let track = await LiveTrack.findOne({ cameraId: camera._id, key }).select("+feat").lean();
   if (!track) return;
+  if (track.personId && await resolveConflict(camera, track)) track = { ...track, personId: null };
   if (track.personId) {
-    const person = await Person.findById(track.personId).select("+vec");
+    const person = await Person.findById(track.personId).select("+vec +gallery");
     if (!person) return;
     await updatePersonFromTrack(person, track, camera, { mergeVector: track.final });
     rememberTrack(camera._id, key, person._id);
@@ -209,7 +257,7 @@ async function processTrack({ camera, key, timeZone, nowMs }) {
 
   let decision = { decision: "none", personId: null, sim: 0 };
   if (!person && featReady) {
-    const people = await Person.find({ venueId: camera.venueId, day, vecN: { $gt: 0 } }).select("+vec role staffId no lastSeenAt").lean();
+    const people = await Person.find({ venueId: camera.venueId, day, vecN: { $gt: 0 } }).select("+vec +gallery role staffId no lastSeenAt").lean();
     // A person cannot be on two tracks of the same camera at once.
     const overlapping = await LiveTrack.find({
       cameraId: camera._id,
@@ -219,20 +267,23 @@ async function processTrack({ camera, key, timeZone, nowMs }) {
       endAt: { $gt: new Date(new Date(track.startAt).getTime() + 1000) },
     }).select("personId").lean();
     const busy = new Set(overlapping.map((item) => String(item.personId)));
-    decision = pm.chooseMatch(track.feat, people.map((item) => ({ id: String(item._id), vec: item.vec, role: item.role, busy: busy.has(String(item._id)) })));
-    if (decision.decision === "match") person = await Person.findById(decision.personId).select("+vec");
+    decision = pm.chooseMatch(track.feat, people.map((item) => ({ id: String(item._id), vec: item.vec, gallery: item.gallery, role: item.role, busy: busy.has(String(item._id)) })));
+    if (decision.decision === "match") person = await Person.findById(decision.personId).select("+vec +gallery");
   }
 
-  // Not a new arrival (no entry) → one of the guests already inside who is hidden from the camera right now.
-  if (!person && facts.entryAt === null && regions.line && !(facts.staffSec >= pm.constants.STAFF_ZONE_SEC)) {
-    const hidden = await hiddenGuests(camera._id, new Date(track.startAt).getTime() + 1000, key);
-    const pick = pm.pickHidden({ x: points[0][1], y: points[0][2] }, hidden.map((item) => ({
+  // Not a new arrival (no entry) → someone already inside who is hidden from the camera right now: a guest behind
+  // the showcase, a staff member who walked from the hall to behind the counter.
+  if (!person && facts.entryAt === null && (regions.line || regions.inStaff)) {
+    const hidden = await hiddenPeople(camera._id, new Date(track.startAt).getTime() + 1000, key);
+    const start = { x: points[0][1], y: points[0][2] };
+    const pick = pm.pickHidden({ ...start, behindCounter: regions.inStaff ? regions.inStaff(start) : undefined }, hidden.map((item) => ({
       personId: String(item.person._id),
+      role: item.person.role,
       x: item.x,
       y: item.y,
-      sim: featReady && item.person.vec?.length ? pm.cosine(track.feat, item.person.vec) : null,
+      sim: featReady ? pm.personSimilarity(track.feat, item.person) : null,
     })));
-    if (pick) person = await Person.findById(pick.personId).select("+vec");
+    if (pick) person = await Person.findById(pick.personId).select("+vec +gallery");
   }
 
   if (!person) {
@@ -257,6 +308,7 @@ async function processTrack({ camera, key, timeZone, nowMs }) {
       firstSeenAt: new Date(startMs),
       lastSeenAt: track.endAt,
       vec: featReady ? track.feat : undefined,
+      gallery: featReady ? pm.addToGallery([], track.feat) : undefined,
       vecN: featReady ? Math.min(track.featN, 50) : 0,
       vecExpiresAt: new Date(to + VEC_GRACE_MS),
       shot: track.shot?.box?.length ? { cameraId: camera._id, at: track.shot.at, box: track.shot.box, score: track.shot.score, ref: track.shot.ref } : null,
@@ -350,13 +402,13 @@ async function refreshVisits({ nowMs = Date.now() } = {}) {
  * they are still in the hall. A visit is open until an exit through the door or 3 min without the person.
  */
 async function hiddenInside(cameraId, nowMs = Date.now()) {
-  return (await hiddenGuests(cameraId, nowMs - 5000, null)).length;
+  return (await hiddenPeople(cameraId, nowMs - 5000, null, ["guest"])).length;
 }
 
 // Appearance vectors are erased once their day is over (+ a short grace period for late batches).
 async function expireVectors(nowMs = Date.now()) {
   const now = new Date(nowMs);
-  const people = await Person.updateMany({ vecExpiresAt: { $lte: now } }, { $unset: { vec: 1 }, $set: { vecN: 0, vecExpiresAt: null } });
+  const people = await Person.updateMany({ vecExpiresAt: { $lte: now } }, { $unset: { vec: 1, gallery: 1 }, $set: { vecN: 0, vecExpiresAt: null } });
   const tracks = await LiveTrack.updateMany({ featExpiresAt: { $lte: now } }, { $unset: { feat: 1 }, $set: { featExpiresAt: null } });
   return people.modifiedCount + tracks.modifiedCount;
 }
@@ -378,8 +430,8 @@ async function assignRole(person, { staffId = null, role }) {
 async function mergePeople(source, target) {
   await LiveTrack.updateMany({ personId: source._id }, { $set: { personId: target._id } });
   await Visit.updateMany({ personId: source._id }, { $set: { personId: target._id } });
-  const sourceFull = await Person.findById(source._id).select("+vec");
-  const targetFull = await Person.findById(target._id).select("+vec");
+  const sourceFull = await Person.findById(source._id).select("+vec +gallery");
+  const targetFull = await Person.findById(target._id).select("+vec +gallery");
   const merged = pm.mergeVectors(targetFull.vec, targetFull.vecN || 0, sourceFull.vec, sourceFull.vecN || 0);
   targetFull.set({
     firstSeenAt: new Date(Math.min(new Date(targetFull.firstSeenAt).getTime(), new Date(sourceFull.firstSeenAt).getTime())),
@@ -387,6 +439,9 @@ async function mergePeople(source, target) {
     shot: betterShot(targetFull.shot, sourceFull.shot) ? sourceFull.shot : targetFull.shot,
   });
   if (merged.vec?.length) targetFull.set({ vec: merged.vec, vecN: merged.n });
+  let gallery = targetFull.gallery || [];
+  for (const vector of sourceFull.gallery || []) gallery = pm.addToGallery(gallery, vector);
+  if (gallery.length) targetFull.set({ gallery });
   await targetFull.save();
   await sourceFull.deleteOne();
   for (const keys of trackPeople.values()) for (const [key, personId] of keys) if (personId === String(source._id)) keys.set(key, String(target._id));
@@ -415,6 +470,7 @@ async function detachVisit(visit, timeZone) {
     firstSeenAt: visit.startAt,
     lastSeenAt: visit.lastSeenAt,
     vec: vec ?? undefined,
+    gallery: feats.reduce((gallery, track) => pm.addToGallery(gallery, track.feat), []),
     vecN,
     vecExpiresAt: vec ? new Date(to + VEC_GRACE_MS) : null,
     shot: shotTrack ? { cameraId: visit.cameraId, ...shotTrack.shot } : null,

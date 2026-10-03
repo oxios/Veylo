@@ -23,6 +23,8 @@ const liveTrackSchema = new mongoose.Schema({
   // "bicycle": a bicycle (counted as a passing cyclist only); `bike`: a person riding one.
   cls: { type: String, enum: ["person", "bicycle"], default: "person" },
   bike: { type: Boolean, default: false },
+  // Best detection confidence of the track (absent on tracks from older nodes).
+  maxConf: { type: Number, default: null },
 }, { versionKey: false, collection: "livetracks", timestamps: { createdAt: false, updatedAt: true } });
 
 liveTrackSchema.index({ cameraId: 1, key: 1 }, { unique: true });

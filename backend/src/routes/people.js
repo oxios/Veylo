@@ -122,7 +122,7 @@ async function dayPassers(venue, ownerId, from, to, timeZone, nowMs) {
   const withZone = cameras.filter((camera) => cameraRegions(camera).passZone);
   if (!withZone.length) return null;
   const tracks = await LiveTrack.find({ cameraId: { $in: withZone.map((camera) => camera._id) }, startAt: { $lt: new Date(to) }, endAt: { $gte: new Date(from) } })
-    .select("cameraId startAt endAt final points cls bike shot").lean();
+    .select("cameraId startAt endAt final points cls bike shot maxConf").lean();
   const items = [];
   for (const camera of withZone) {
     const own = tracks.filter((track) => String(track.cameraId) === String(camera._id));

@@ -177,6 +177,7 @@ const nodeObservations = z.object({
     featN: z.number().int().min(1).max(100_000).optional(),
     // "bicycle" tracks only feed passer-by counts; `bike` = this person rode a bicycle.
     cls: z.enum(["person", "bicycle"]).optional(),
+    conf: z.number().min(0).max(1).optional(),
     bike: z.boolean().optional(),
     shot: z.object({
       at: z.number().int(),

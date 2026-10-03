@@ -116,6 +116,32 @@ class TrackCollector:
 # ---- live tracks -------------------------------------------------------------------------------
 
 
+def drop_duplicates(boxes: list[list[float]], min_iou: float = 0.45, min_contain: float = 0.85) -> list[list[float]]:
+    """One person, two boxes: YOLO sometimes returns a tight box and a wider "person + chair" box around a seated
+    person (IoU ~0.55, below NMS's 0.7), and the tracker gives each its own id. A box lying almost entirely inside
+    another with a large overlap is the same person; the older track (lower id) is kept so its number survives.
+    People standing one behind another overlap less (a distant person is a small part of the near one's box).
+    boxes: [[trackId, x1, y1, x2, y2, conf], ...]"""
+    kept: list[list[float]] = []
+    for box in sorted(boxes, key=lambda item: item[0]):
+        duplicate = False
+        for other in kept:
+            ix = max(0.0, min(box[3], other[3]) - max(box[1], other[1]))
+            iy = max(0.0, min(box[4], other[4]) - max(box[2], other[2]))
+            inter = ix * iy
+            area_a = (box[3] - box[1]) * (box[4] - box[2])
+            area_b = (other[3] - other[1]) * (other[4] - other[2])
+            if inter <= 0:
+                continue
+            iou = inter / max(1e-9, area_a + area_b - inter)
+            if iou >= min_iou and inter / max(1e-9, min(area_a, area_b)) >= min_contain:
+                duplicate = True
+                break
+        if not duplicate:
+            kept.append(box)
+    return kept
+
+
 def shot_quality(box: list[float], conf: float) -> float:
     """How good a frame is as visual proof of the track (journal thumbnail): any size, the larger and surer the
     better. Distant passers-by get a small but real crop."""
@@ -177,6 +203,8 @@ class _LiveTrack:
     shot: dict | None = None  # best frame: {"at": ms, "box": [x1, y1, x2, y2], "score": q, "ref": file key}
     shot_sent: dict | None = None
     kind: str = "person"  # "person" | "bicycle"
+    max_conf: float = 0.0  # best detection confidence (night reflections stay low)
+    max_conf_sent: float = 0.0
     bike_frames: int = 0  # frames where this person was on a bicycle
     bike_sent: bool = False
 
@@ -190,9 +218,12 @@ class LiveTrackBook:
     of points the API already has, which makes retried uploads idempotent.
     """
 
-    def __init__(self, session: str, point_interval: float = 0.5, lost_after: float = 3.0, min_points: int = 3,
-                 min_feat_samples: int = 3, max_feat_samples: int = 400):
+    def __init__(self, session: str, point_interval: float = 0.5, lost_after: float = 3.0, min_points: int = 2,
+                 min_feat_samples: int = 3, max_feat_samples: int = 400, dense_start: float = 2.0):
         self.session = session
+        # A passer-by crosses the door glass in under a second (3-4 analysed frames): the first seconds of a track are
+        # kept frame by frame, later points every `point_interval`.
+        self.dense_start = dense_start
         self.min_feat_samples = min_feat_samples
         self.max_feat_samples = max_feat_samples
         self.point_interval = point_interval
@@ -208,10 +239,15 @@ class LiveTrackBook:
                 self.tracks[track_id] = track
             track.last_seen = t
             track.x, track.y = x, y
-            if t - track.last_point >= self.point_interval:
+            if t - track.start < self.dense_start or t - track.last_point >= self.point_interval:
                 track.points.append([round(t - track.start, 2), x, y])
                 track.total += 1
                 track.last_point = t
+
+    def note_conf(self, track_id: int, conf: float) -> None:
+        track = self.tracks.get(track_id)
+        if track is not None and conf > track.max_conf:
+            track.max_conf = conf
 
     def mark_bike(self, track_id: int) -> None:
         track = self.tracks.get(track_id)
@@ -278,6 +314,9 @@ class LiveTrackBook:
                     track.shot_sent = track.shot
                 if track.kind != "person":
                     item["cls"] = track.kind
+                if track.max_conf > track.max_conf_sent:
+                    item["conf"] = round(track.max_conf, 2)
+                    track.max_conf_sent = track.max_conf
                 if track.bike_frames >= 2 and not track.bike_sent:
                     item["bike"] = True
                     track.bike_sent = True

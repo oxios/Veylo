@@ -130,10 +130,16 @@ test("aggregation keeps offline time as gaps and computes conversion", () => {
   assert.equal(stats.occupancy, null);
 });
 
-test("now state does not report people outside the hall zone as being in the door", () => {
-  const camera = { kind: "hybrid", doorZone: { points: square(0, 0, 0.3) }, hallZone: { points: square(0.3, 0.3, 0.4) } };
-  const state = nowState({ camera, people: [[1, 0.1, 0.1], [2, 0.5, 0.5], [3, 0.9, 0.9]] });
-  assert.deepEqual([state.inHall, state.outside, state.elsewhere], [1, 1, 1]);
+test("now state: everyone inside is in the hall except the doorway and staff behind the counter", () => {
+  const camera = {
+    kind: "hybrid",
+    doorZone: { points: square(0, 0, 0.3) },
+    hallZone: { points: square(0.3, 0.3, 0.4) },
+    staffZone: { points: square(0.8, 0.2, 0.15) },
+  };
+  // A guest at the counter (0.75, 0.9) stands just outside the hall zone but is still inside the venue.
+  const state = nowState({ camera, people: [[1, 0.1, 0.1], [2, 0.5, 0.5], [3, 0.75, 0.9], [4, 0.85, 0.3]] });
+  assert.deepEqual([state.inHall, state.outside, state.elsewhere], [2, 1, 1]);
 });
 
 test("now state splits hall and outside, tracks table occupancy since", () => {
@@ -164,6 +170,7 @@ test("passers-by must move along; a rider and his bicycle are one cyclist", () =
     { startAt: new Date(startAt.getTime() + 60_000), endAt: startAt, final: true, points: walk(0.05, 0.25), bike: true }, // rider
     { startAt: new Date(startAt.getTime() + 60_000), endAt: startAt, final: true, points: walk(0.06, 0.26), cls: "bicycle" }, // his bicycle
     { startAt: new Date(startAt.getTime() + 120_000), endAt: startAt, final: true, points: walk(0.05, 0.25), cls: "bicycle" }, // rider not detected
+    { startAt: new Date(startAt.getTime() + 180_000), endAt: startAt, final: true, points: walk(0.05, 0.25), maxConf: 0.3 }, // a reflection at night
   ];
   const events = passerbyEvents(tracks, regions, startAt.getTime() + 600_000);
   assert.deepEqual(events.map((event) => event.kind), ["pedestrian", "cyclist", "cyclist"]);

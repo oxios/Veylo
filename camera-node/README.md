@@ -44,6 +44,11 @@ people hidden behind someone) with ReID `REID_MODEL_PATH` (`yolo26s-reid.onnx`, 
 frames of a track (not overlapping anyone, ≥ 12 % of the frame tall, conf ≥ 0.45) give its appearance vector and
 the best crop (`RECORDINGS_DIR/_shots`, survives restarts, deleted together with the archive). `SAM_MODEL_PATH` (`sam2.1_b.pt`) outlines
 furniture for the markup editor; it is loaded on first use. All models are downloaded at image build time.
+Two boxes on one person (a tight one and a wider "person + chair" one, IoU ~0.55 — below NMS) are folded into the
+older track (`pipeline.drop_duplicates`: IoU ≥ 0.45 and ≥ 85 % of the smaller box inside the larger). Classes person
+and bicycle are tracked; bicycles are sent with `cls: "bicycle"`, riders with `bike: true`. A track starts at
+`YOLO_CONFIDENCE` (a passer-by behind the door glass is often 0.3–0.4) and its first 2 s are recorded frame by frame
+(a passer-by is in the glass for 3–4 analysed frames); tracks of 2+ points are uploaded.
 Measured on a real camera (03.10.2026): yolo11m and 10 fps did not give longer tracks than yolo11s at 5 fps, so the
 defaults stay; a different detector is a build argument (`YOLO_MODEL`).
 

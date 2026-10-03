@@ -38,6 +38,8 @@ const personSchema = new mongoose.Schema({
     default: null,
   },
   vec: { type: [Number], default: undefined, select: false },
+  // Up to 16 vectors from different tracks (views) of the person; erased with `vec`.
+  gallery: { type: [[Number]], default: undefined, select: false },
   vecN: { type: Number, default: 0 },
   vecExpiresAt: { type: Date, default: null },
 }, { ...schemaOptions, collection: "people" });
@@ -51,6 +53,7 @@ personSchema.set("toJSON", {
   transform: (document, returned) => {
     schemaOptions.toJSON.transform(document, returned);
     delete returned.vec;
+    delete returned.gallery;
     delete returned.vecN;
     delete returned.vecExpiresAt;
     return returned;

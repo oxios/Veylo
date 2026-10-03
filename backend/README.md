@@ -148,7 +148,7 @@ are stored separately: a period without coverage is a gap (`null`), never a zero
   Rules: line crossings with 0.015 hysteresis; a passer-by is a finished track that was in the zone (for
   hybrid ≥ 60 % of its points in the door opening) and never crossed the line; a table is occupied in
   sessions ≥ 60 s (gaps < 30 s merged) by foot points inside the table polygon expanded ×1.35.
-- `GET /api/cameras/:cameraId/now` → `{ live: { status, at, now: { people, inHall, outside, elsewhere, hidden, tables[{id,
+- `GET /api/cameras/:cameraId/now` → `{ live: { status, at, now: { people, inHall (everyone inside except the doorway and the staff zone), outside, elsewhere (staff zone), hidden, tables[{id,
   occupied, sinceSec}] } | null, today: { entries, exits, passersby } } }`.
 - `GET /api/cameras/:cameraId/live/stream` — Server-Sent Events: `frame` `{ t, session, people: [[trackId, x1, y1,
   x2, y2, conf]], labels? }` (~5/s) and `state` (same as `/now`, every 2 s). `labels` maps a trackId to the person
@@ -185,7 +185,8 @@ the staff zone makes a "who is this?" review instead. A hall track without an en
 inside: the track that vanished there (≤ 20 s nearby, ≤ 3 min on the same spot), the same appearance, or a guest who
 entered and is out of sight (`hidden` in `/now`: open visits not on any visible track, added to "in the hall"). Nodes with ReID send an appearance vector per track (clothes/silhouette, no face, no image); a new
 track whose vector matches a person of the same day (cosine ≥ 0.80 with a 0.05 margin over the runner-up, not on
-another track at the same time) continues that person — a lost-and-found track within 3 min continues the visit,
+another track at the same time; compared with the closest of up to 16 vectors the person collected during the day
+from different tracks — a per-day gallery) continues that person — a lost-and-found track within 3 min continues the visit,
 otherwise it is a new visit. Vectors are never returned to the browser and are erased after the day ends
 (+2 h). A visit closes on an exit through the door or 3 min without the person.
 
@@ -195,7 +196,8 @@ otherwise it is a new visit. Vectors are never returned to the browser and are e
   occupancy[{t, avg}] (10 min), gaps[{from, to}] (≥ 10 min without analysis), persons[], visits[{ …, path[[t, x, y]]
   (≤ 60 points) }], passers: null | { pedestrians, cyclists, byHour[{hour, pedestrians, cyclists}], items[{ id (track),
   cameraId, at, from, to, kind: pedestrian | cyclist, hasShot }] (newest first, ≤ 300) } } }`. A passer-by is a complete
-  track in the door opening / on the sidewalk that never crossed the threshold and moved ≥ 0.025 of the frame; a person
+  track in the door opening / on the sidewalk that never crossed the threshold, moved ≥ 0.025 of the frame and was
+  detected with confidence ≥ 0.45 at least once (tracks from older nodes carry no confidence); a person
   on a bicycle (or a bicycle whose rider was not detected) is a cyclist, a rider and his bicycle count once.
 - `GET /api/tracks/:trackId/thumb` → `image/jpeg`: the best frame of a passer-by track (same storage rules as below).
   Guests waiting for a staff confirmation are not counted as guests.
@@ -248,7 +250,7 @@ otherwise it is a new visit. Vectors are never returned to the browser and are e
   endAt, from, points[[offsetSec, x, y]], final, feat?, featN?, shot?, cls?, bike?}], now? }` (idempotent: coverage uses `$max`, points are
   appended only when `from` matches the stored count). `feat` = L2-normalised mean ReID embedding of the track's
   clean frames (64–1024 values), `featN` = frames in it, `shot` = `{ at (ms), box [x1,y1,x2,y2], score, ref }` — the
-  best frame, whose crop the node keeps under `ref` (`<session>_<trackId>`); `cls: "bicycle"` marks bicycle tracks (only
+  best frame, whose crop the node keeps under `ref` (`<session>_<trackId>`); `conf` = the best detection confidence (passers-by need ≥ 0.45), `cls: "bicycle"` marks bicycle tracks (only
   passer-by counts use them), `bike: true` a person riding a bicycle. Frames carry bicycles as `[id, x1, y1, x2, y2, conf, 1]`. The reply comes after the batch's
   tracks were assigned to people. `409 CAMERA_NOT_ASSIGNED` for foreign cameras.
 - `POST /api/node/cameras/:id/snapshot` (`image/jpeg`), `POST /api/node/cameras/:id/tables`.

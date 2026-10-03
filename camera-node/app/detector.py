@@ -29,7 +29,8 @@ def write_tracker_config(path: Path, *, confidence: float, fps: float, reid_mode
         "tracker_type": "botsort",
         "track_high_thresh": confidence,
         "track_low_thresh": LOW_CONFIDENCE,
-        "new_track_thresh": max(confidence, 0.4),
+        # A distant passer-by behind the door glass is often detected at 0.3-0.4; a higher bar never starts their track.
+        "new_track_thresh": confidence,
         "track_buffer": int(round(fps * 6)),
         "match_thresh": 0.8,
         "fuse_score": True,

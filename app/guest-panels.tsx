@@ -1,21 +1,21 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { Bike, Footprints, ImageOff, MapPin, Route } from "lucide-react";
 import { apiUrl } from "./api-client";
 import { CameraFrame, centroid, polygonPoints } from "./camera-ui";
 import { BarChart } from "./charts";
 import { formatDuration, formatHour, formatPercent, formatTime } from "./format";
-import { ArchiveClip, guestName } from "./people-ui";
+import { ArchiveClip, guestName, useNow } from "./people-ui";
 import type { Camera, GuestsDay, Passer, Visit } from "./types";
 
 // ---- passers-by with proof ----
 
 type PasserFilter = "all" | "pedestrian" | "cyclist";
 
-function PasserCard({ passer, camera }: { passer: Passer; camera: Camera | undefined }) {
+function PasserCard({ passer, camera, now }: { passer: Passer; camera: Camera | undefined; now: number }) {
   const [failed, setFailed] = useState(false);
-  const recordable = Date.now() - Date.parse(passer.at) < 24 * 3_600_000 - 5 * 60_000;
+  const recordable = now - Date.parse(passer.at) < 24 * 3_600_000 - 5 * 60_000;
   return (
     <article className="passer-card">
       <div className="passer-shot">
@@ -37,6 +37,7 @@ function PasserCard({ passer, camera }: { passer: Passer; camera: Camera | undef
 export function PassersPanel({ data, cameras }: { data: GuestsDay; cameras: Camera[] }) {
   const [filter, setFilter] = useState<PasserFilter>("all");
   const [limit, setLimit] = useState(24);
+  const now = useNow(60_000);
   const passers = data.passers;
   if (!passers) {
     return (
@@ -90,7 +91,7 @@ export function PassersPanel({ data, cameras }: { data: GuestsDay; cameras: Came
       </div>
       {items.length === 0 ? <p className="muted">{data.live ? "Поки нікого. Перехожий з’явиться тут, щойно пройде повз двері." : "Цього дня перехожих не зафіксовано."}</p> : (
         <div className="passer-grid">
-          {items.slice(0, limit).map((passer) => <PasserCard key={passer.id} passer={passer} camera={camerasById.get(passer.cameraId)} />)}
+          {items.slice(0, limit).map((passer) => <PasserCard key={passer.id} passer={passer} camera={camerasById.get(passer.cameraId)} now={now} />)}
         </div>
       )}
       {items.length > limit && <button type="button" className="secondary block-center" onClick={() => setLimit(limit + 48)}>Показати ще {Math.min(48, items.length - limit)}</button>}
@@ -105,6 +106,14 @@ type RouteFilter = "all" | "seated" | "now";
 
 const hue = (no: number | null) => ((no ?? 0) * 137.5) % 360;
 
+// Foot points jitter by a few pixels even when someone stands still; a short moving average draws the walk, not the noise.
+function smoothPath(path: [number, number, number][]) {
+  return path.map((_, index) => {
+    const window = path.slice(Math.max(0, index - 2), index + 3);
+    return { x: window.reduce((sum, p) => sum + p[1], 0) / window.length, y: window.reduce((sum, p) => sum + p[2], 0) / window.length };
+  });
+}
+
 export function RoutesPanel({ data, cameras, onOpen }: { data: GuestsDay; cameras: Camera[]; onOpen: (personId: string) => void }) {
   const [filter, setFilter] = useState<RouteFilter>("all");
   const [focus, setFocus] = useState<string | null>(null);
@@ -112,23 +121,21 @@ export function RoutesPanel({ data, cameras, onOpen }: { data: GuestsDay; camera
   const [cameraId, setCameraId] = useState<string>(liveCameras[0]?.id ?? "");
   const camera = liveCameras.find((item) => item.id === cameraId) ?? liveCameras[0];
 
-  const visits = useMemo(() => data.visits
+  const visits = data.visits
     .filter((visit) => visit.cameraId === camera?.id && (visit.path?.length ?? 0) >= 2)
-    .filter((visit) => filter === "all" || (filter === "seated" ? visit.tables.length > 0 : visit.active)), [data.visits, camera, filter]);
+    .filter((visit) => filter === "all" || (filter === "seated" ? visit.tables.length > 0 : visit.active));
 
   // Where guests sat: visits per table with the average time.
-  const seats = useMemo(() => {
-    const map = new Map<string, { label: string; visits: number; sec: number }>();
-    for (const visit of data.visits.filter((item) => item.cameraId === camera?.id)) {
-      for (const table of visit.tables) {
-        const entry = map.get(table.id) ?? { label: table.label, visits: 0, sec: 0 };
-        entry.visits += 1;
-        entry.sec += table.sec;
-        map.set(table.id, entry);
-      }
+  const seatMap = new Map<string, { label: string; visits: number; sec: number }>();
+  for (const visit of data.visits.filter((item) => item.cameraId === camera?.id)) {
+    for (const table of visit.tables) {
+      const entry = seatMap.get(table.id) ?? { label: table.label, visits: 0, sec: 0 };
+      entry.visits += 1;
+      entry.sec += table.sec;
+      seatMap.set(table.id, entry);
     }
-    return [...map.entries()].map(([id, entry]) => ({ id, ...entry })).sort((a, b) => b.visits - a.visits);
-  }, [data.visits, camera]);
+  }
+  const seats = [...seatMap.entries()].map(([id, entry]) => ({ id, ...entry })).sort((a, b) => b.visits - a.visits);
 
   if (!camera) return null;
   const maxSeat = Math.max(1, ...seats.map((seat) => seat.visits));
@@ -161,7 +168,7 @@ export function RoutesPanel({ data, cameras, onOpen }: { data: GuestsDay; camera
           <svg viewBox="0 0 1 1" preserveAspectRatio="none" role="img" aria-label={`Маршрути ${visits.length} візитів на кадрі камери`}>
             {camera.tables.map((table) => <polygon key={table.id} className="route-table" points={polygonPoints(table.points)} />)}
             {visits.map((visit) => {
-              const points = (visit.path ?? []).map(([, x, y]) => ({ x, y }));
+              const points = smoothPath(visit.path ?? []);
               const dim = focus !== null && focus !== visit.personId;
               return (
                 <g key={visit.id} className={dim ? "route dim" : focus === visit.personId ? "route focus" : "route"} style={{ color: color(visit) }}>

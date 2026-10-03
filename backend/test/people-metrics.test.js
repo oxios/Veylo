@@ -93,6 +93,38 @@ test("a hall track without an entry continues a hidden guest: appearance first, 
   assert.equal(pm.pickHidden(start, [{ ...near, sim: 0.2 }, { ...far, sim: 0.7 }]).personId, "far");
   assert.equal(pm.pickHidden(start, [{ ...near, sim: 0.1 }]), null);
   assert.equal(pm.pickHidden(start, []), null);
+  // A staff member who walked from the sofa to behind the counter: far away, but the counter is her place.
+  const barista = { personId: "staff", role: "staff", x: 0.45, y: 0.3, sim: null };
+  const guest = { personId: "guest", role: "guest", x: 0.7, y: 0.6, sim: null };
+  assert.equal(pm.pickHidden({ x: 0.9, y: 0.95, behindCounter: true }, [barista, guest]).personId, "staff");
+  assert.equal(pm.pickHidden({ x: 0.5, y: 0.5, behindCounter: false }, [barista, guest]).personId, "guest");
+  // Nobody of the staff hidden: a track behind the counter is not given to a guest without a clear appearance match.
+  assert.equal(pm.pickHidden({ x: 0.9, y: 0.95, behindCounter: true }, [guest]), null);
+  assert.equal(pm.pickHidden({ x: 0.9, y: 0.95, behindCounter: true }, [{ ...guest, sim: 0.7 }]).personId, "guest");
+});
+
+test("one person on two simultaneous tracks far apart is a conflict", () => {
+  const girl = { startSec: 0, endSec: 100, x: 0.1, y: 0.5 };
+  assert.ok(pm.concurrentConflict({ startSec: 50, endSec: 80, x: 0.9, y: 0.9 }, girl));
+  assert.equal(pm.concurrentConflict({ startSec: 101, endSec: 130, x: 0.9, y: 0.9 }, girl), false, "one after another is fine");
+  assert.equal(pm.concurrentConflict({ startSec: 50, endSec: 80, x: 0.12, y: 0.5 }, girl), false, "same place = duplicate box, not a conflict");
+});
+
+test("day gallery: a person is recognised by the closest of their stored views", () => {
+  const seated = pm.normalize([1, 0, 0]);
+  const standing = pm.normalize([0, 1, 0]);
+  let gallery = pm.addToGallery([], seated);
+  gallery = pm.addToGallery(gallery, standing);
+  gallery = pm.addToGallery(gallery, pm.normalize([1, 0.01, 0])); // same view again adds nothing
+  assert.equal(gallery.length, 2);
+  const average = pm.normalize([1, 1, 0]); // the blurred mean matches neither view well
+  const person = { id: "girl", vec: average, gallery, role: "guest" };
+  const later = pm.normalize([0.05, 1, 0]);
+  assert.ok(pm.cosine(later, average) < 0.8);
+  assert.ok(pm.personSimilarity(later, person) > 0.95);
+  assert.equal(pm.chooseMatch(later, [person, { id: "other", vec: pm.normalize([0, 0, 1]), role: "guest" }]).personId, "girl");
+  for (let i = 0; i < 30; i += 1) gallery = pm.addToGallery(gallery, pm.normalize([Math.cos(i), Math.sin(i), i / 10]));
+  assert.ok(gallery.length <= pm.constants.GALLERY_SIZE);
 });
 
 test("vectors merge as a weighted mean and stay normalised", () => {

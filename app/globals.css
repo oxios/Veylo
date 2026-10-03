@@ -876,3 +876,50 @@ button.dt-label:hover { background: #f1f6f3; }
   .kpis.five { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .page-toolbar > .primary { width: 100%; justify-content: center; }
 }
+
+/* passers-by with proof */
+.passer-totals { display: flex; flex-wrap: wrap; gap: 8px; }
+.passer-totals span { display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 0 11px; border-radius: 8px; background: #f6f9f7; font-size: 13px; font-weight: 750; font-variant-numeric: tabular-nums; }
+.passer-totals svg { width: 15px; color: var(--s2); }
+.passer-toolbar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; margin: 14px 0 10px; }
+.passer-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
+.passer-card { display: grid; align-content: start; gap: 6px; padding: 8px; border: 1px solid var(--line); border-radius: 11px; background: #fff; }
+.passer-shot { position: relative; display: grid; height: 150px; overflow: hidden; border-radius: 8px; background: #0d1411; color: #5d6b65; place-items: center; }
+.passer-shot img { width: 100%; height: 100%; object-fit: contain; }
+.passer-shot svg { width: 22px; }
+.passer-kind { position: absolute; top: 6px; left: 6px; display: grid; width: 24px; height: 24px; border-radius: 7px; background: var(--s2); place-items: center; }
+.passer-kind.cyclist { background: var(--s1); }
+.passer-kind svg { width: 14px; color: #fff; }
+.passer-meta { display: grid; }
+.passer-meta strong { font-size: 14px; font-variant-numeric: tabular-nums; }
+.passer-meta small { color: var(--muted); font-size: 11px; font-weight: 650; }
+.visit-clip.compact .secondary { width: 100%; justify-content: center; height: 30px; }
+.secondary.block-center { display: flex; margin: 12px auto 0; }
+
+/* guest routes */
+.routes-layout { display: grid; grid-template-columns: minmax(0, 1fr) 280px; gap: 14px; align-items: start; }
+.routes-frame { position: relative; overflow: hidden; border-radius: 12px; background: var(--stage); }
+.routes-frame .frame-view { border-radius: 0; filter: saturate(.55) brightness(.7); }
+.routes-frame svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+.route-table { fill: rgba(255,255,255,.06); stroke: rgba(255,255,255,.45); stroke-width: 1.5; vector-effect: non-scaling-stroke; }
+.route polyline { fill: none; stroke: currentColor; stroke-width: 2.5; stroke-linecap: round; stroke-linejoin: round; vector-effect: non-scaling-stroke; opacity: .75; }
+.route circle { fill: currentColor; }
+.route .route-start { fill: #fff; stroke: currentColor; stroke-width: 2; vector-effect: non-scaling-stroke; }
+.route.dim { opacity: .12; }
+.route.focus polyline { stroke-width: 4.5; opacity: 1; }
+.route-seat { position: absolute; display: grid; min-width: 24px; height: 24px; padding: 0 6px; border-radius: 12px; background: #fab219; color: #241a00; font-size: 12px; font-style: normal; font-weight: 850; place-items: center; transform: translate(-50%, -50%); pointer-events: none; }
+.routes-empty { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; gap: 8px; color: #cfdcd6; font-size: 14px; font-weight: 700; }
+.routes-empty svg { width: 18px; }
+.routes-side { display: grid; gap: 10px; }
+.routes-side h3 { display: flex; align-items: center; gap: 7px; margin: 0; font-size: 13px; }
+.routes-side h3 svg { width: 15px; color: var(--mint-dark); }
+.seat-bars, .route-list { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.seat-bars li { display: grid; gap: 3px; font-size: 13px; font-weight: 700; }
+.seat-bars i { display: block; height: 6px; border-radius: 3px; background: #fab219; }
+.seat-bars b { color: var(--muted); font-size: 11px; font-weight: 700; }
+.route-list { max-height: 300px; overflow-y: auto; }
+.route-list button { display: grid; grid-template-columns: 10px auto 1fr; align-items: center; gap: 8px; width: 100%; padding: 6px 8px; border: 0; border-radius: 8px; background: transparent; color: var(--ink); font-family: inherit; font-size: 13px; font-weight: 750; text-align: left; cursor: pointer; }
+.route-list button:hover, .route-list button:focus-visible { background: #f1f6f3; }
+.route-list i { width: 10px; height: 10px; border-radius: 50%; }
+.route-list small { overflow: hidden; color: var(--muted); font-size: 11px; font-weight: 650; text-align: right; text-overflow: ellipsis; white-space: nowrap; }
+@media (max-width: 1100px) { .routes-layout { grid-template-columns: 1fr; } }

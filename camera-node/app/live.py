@@ -18,7 +18,7 @@ from .media import Publisher, grab_jpeg, hub_publish_url, probe_stream, save_per
 from .detector import BICYCLE, PERSON
 from .pipeline import (
     RTSP_MESSAGES, CoverageCounter, LiveTrackBook, TableClusterer, appearance_quality, foot_point, inference_size, normalized_box,
-    path_available, path_names, rides_bicycle, shot_quality,
+    drop_duplicates, path_available, path_names, rides_bicycle, shot_quality,
 )
 
 if TYPE_CHECKING:
@@ -268,17 +268,18 @@ class CameraWorker(threading.Thread):
                 people, bikes, frame_boxes, bike_boxes = [], [], [], []
                 if boxes is not None and boxes.id is not None:
                     for xyxy, track_id, confidence, cls in zip(boxes.xyxy.tolist(), boxes.id.int().tolist(), boxes.conf.tolist(), boxes.cls.int().tolist()):
-                        x, y = foot_point(xyxy, width, height)
                         box = [track_id, *normalized_box(xyxy, width, height), round(confidence, 2)]
-                        if cls == BICYCLE:
-                            bikes.append((track_id, x, y))
-                            bike_boxes.append(box)
-                        else:
-                            people.append((track_id, x, y))
-                            frame_boxes.append(box)
+                        (bike_boxes if cls == BICYCLE else frame_boxes).append(box)
+                frame_boxes = drop_duplicates(frame_boxes)
+                for track_id, x1, y1, x2, y2, _confidence in frame_boxes:
+                    people.append((track_id, round((x1 + x2) / 2, 4), round(y2, 4)))
+                for track_id, x1, y1, x2, y2, _confidence in bike_boxes:
+                    bikes.append((track_id, round((x1 + x2) / 2, 4), round(y2, 4)))
                 book.observe(t, people)
                 book.observe(t, bikes, kind="bicycle")
                 bicycles = [box[1:5] for box in bike_boxes]
+                for box in frame_boxes + bike_boxes:
+                    book.note_conf(box[0], box[5])
                 # Clean (unobstructed, close enough) frames give the person's appearance vector; the best frame of
                 # every track, however small, is kept as visual proof (thumbnail).
                 for index, (track_id, x1, y1, x2, y2, confidence) in enumerate(frame_boxes):

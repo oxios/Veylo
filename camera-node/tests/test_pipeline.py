@@ -6,6 +6,7 @@ from pathlib import Path
 
 from app.pipeline import (
     appearance_quality,
+    drop_duplicates,
     rides_bicycle,
     shot_quality,
     inference_size,
@@ -64,7 +65,7 @@ class PipelineTest(unittest.TestCase):
 
 class LiveTrackBookTest(unittest.TestCase):
     def test_points_are_sampled_and_uploaded_incrementally(self):
-        book = LiveTrackBook("s1", point_interval=0.5, lost_after=3, min_points=3)
+        book = LiveTrackBook("s1", point_interval=0.5, lost_after=3, min_points=3, dense_start=0)
         for i in range(5):  # 5 fps for 1 s -> points at 0, 0.6 (>=0.5 apart)
             book.observe(1000 + i * 0.2, [(4, 0.5, 0.5)])
         self.assertEqual(book.drain(), [], "two points are not a track yet")
@@ -82,7 +83,7 @@ class LiveTrackBookTest(unittest.TestCase):
         self.assertFalse(second[0]["final"])
 
     def test_lost_tracks_are_finalised_once_and_flicker_is_never_sent(self):
-        book = LiveTrackBook("s1", point_interval=0.5, lost_after=3, min_points=3)
+        book = LiveTrackBook("s1", point_interval=0.5, lost_after=3, min_points=3, dense_start=0)
         for i in range(4):
             book.observe(10 + i * 0.5, [(1, 0.2, 0.2)])
         book.observe(10, [(2, 0.9, 0.9)])  # one-frame flicker
@@ -180,6 +181,37 @@ class InferenceSizeTest(unittest.TestCase):
         self.assertEqual(inference_size(1280, 640, gpu=False), 640)
 
 
+class PasserbySamplingTest(unittest.TestCase):
+    def test_a_sub_second_pass_is_kept(self):
+        # 4 analysed frames at 5 fps = 0.6 s in the door glass: kept frame by frame, uploaded with 2+ points.
+        book = LiveTrackBook("s1")
+        for step in range(4):
+            book.observe(10 + step * 0.2, [(5, 0.05 + step * 0.03, 0.3)])
+        batch = book.drain()
+        self.assertEqual(len(batch), 1)
+        self.assertEqual(len(batch[0]["points"]), 4)
+
+    def test_later_points_are_sparse(self):
+        book = LiveTrackBook("s1")
+        for step in range(50):  # 10 s at 5 fps
+            book.observe(10 + step * 0.2, [(5, 0.5, 0.5)])
+        points = book.drain()[0]["points"]
+        self.assertLess(len(points), 30)
+
+
+class DuplicateTest(unittest.TestCase):
+    def test_tight_and_wide_box_of_one_seated_person_become_one(self):
+        # Measured on the real camera: #1 tight, #25 "person + chair", IoU 0.55, containment 1.0.
+        kept = drop_duplicates([[25, 0.42, 0.05, 0.53, 0.35, 0.47], [1, 0.47, 0.05, 0.53, 0.35, 0.36]])
+        self.assertEqual([box[0] for box in kept], [1])
+
+    def test_two_people_side_by_side_or_one_behind_another_stay(self):
+        side = drop_duplicates([[1, 0.40, 0.2, 0.50, 0.6, 0.8], [2, 0.46, 0.2, 0.56, 0.6, 0.8]])
+        self.assertEqual(len(side), 2)
+        behind = drop_duplicates([[1, 0.30, 0.2, 0.60, 0.9, 0.8], [2, 0.40, 0.25, 0.45, 0.4, 0.6]])
+        self.assertEqual(len(behind), 2)
+
+
 class BicycleTest(unittest.TestCase):
     def test_rider_overlaps_bicycle_with_lower_half(self):
         person = [0.4, 0.2, 0.5, 0.6]
@@ -198,6 +230,17 @@ class BicycleTest(unittest.TestCase):
         self.assertTrue(batch["abcdef0123:1"]["bike"])
         self.assertNotIn("cls", batch["abcdef0123:1"])
         self.assertEqual([item[0] for item in book.current(11)], [1], "bicycles are not people in the hall")
+
+    def test_best_confidence_is_uploaded_when_it_grows(self):
+        book = LiveTrackBook(session="abcdef0123")
+        for step in range(3):
+            book.observe(10 + step * 0.5, [(1, 0.5, 0.5)])
+        book.note_conf(1, 0.42)
+        book.note_conf(1, 0.81)
+        self.assertEqual(book.drain()[0]["conf"], 0.81)
+        book.observe(12, [(1, 0.5, 0.5)])
+        book.note_conf(1, 0.5)
+        self.assertNotIn("conf", book.drain()[0])
 
     def test_shot_quality_accepts_distant_people(self):
         self.assertGreater(shot_quality([0.1, 0.1, 0.12, 0.16], 0.5), 0)

@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ArrowRight, Clock3, DoorOpen, Info, Repeat2, Search, Footprints, UserCheck, Users } from "lucide-react";
 import { apiFetch } from "./api-client";
+import { PassersPanel, RoutesPanel } from "./guest-panels";
 import { formatDuration, formatPercent, formatTime } from "./format";
 import { DayPicker, DayTimeline, PersonAvatar, PersonDrawer, guestName, timelineRange, useNow, type TimelineRow } from "./people-ui";
 import type { GuestsDay, PageContext, StaffMember, Visit } from "./types";
@@ -180,6 +181,8 @@ export function GuestsPage({ venue, cameras, go }: PageContext) {
         />
       </section>
 
+      <RoutesPanel data={data} cameras={cameras} onOpen={setOpen} />
+
       <section className="card panel">
         <div className="panel-head wrap">
           <div>
@@ -241,6 +244,8 @@ export function GuestsPage({ venue, cameras, go }: PageContext) {
         )}
         <p className="footnote with-icon"><Info />Номер гостя діє в межах дня: повторний візит того ж дня впізнаємо за одягом і силуетом, без облич. Завтра той самий гість отримає новий номер. Якщо система помилилась, відкрийте картку гостя і об’єднайте або розділіть візити.</p>
       </section>
+
+      <PassersPanel data={data} cameras={cameras} />
 
       {open && (
         <PersonDrawer

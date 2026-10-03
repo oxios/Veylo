@@ -17,6 +17,8 @@ const TABLE_MERGE_GAP_SEC = 30;
 const PASSERBY_MIN_POINTS = 2;
 const PASSERBY_MIN_MOVE = 0.025; // a passer-by walks past; a box flickering on one spot is not one
 const RIDER_DISTANCE = 0.2;
+// A passer-by must have been seen clearly at least once: reflections in the door glass at night never are.
+const PASSERBY_MIN_CONF = 0.45;
 const DOOR_SHARE = 0.6; // hybrid: a passer-by is seen mostly through the door opening
 const TRACK_IDLE_SEC = 60; // a track without updates for this long is complete even if the node never said so
 const CONTEXT_MS = 2 * 60_000; // extra track time loaded around an hour (table sessions crossing the boundary)
@@ -73,6 +75,7 @@ function passerbyEvents(tracks, regions, nowMs = Date.now()) {
   for (const track of tracks) {
     const complete = Boolean(track.final) || new Date(track.endAt).getTime() <= nowMs - TRACK_IDLE_SEC * 1000;
     if (!complete) continue;
+    if (typeof track.maxConf === "number" && track.maxConf < PASSERBY_MIN_CONF) continue;
     const points = absolutePoints(track);
     if (!points.length) continue;
     if (regions.line) {
@@ -470,7 +473,9 @@ function aggregateStats({ hours, camera, periodKey, from, to, bucket, timeZone, 
   };
 }
 
-// "Right now" view from the latest positions reported by the node.
+// "Right now" view from the latest positions reported by the node. Everyone inside counts as "in the hall" except
+// people in the door opening / on the sidewalk and staff behind the counter: a guest at the counter has their feet
+// hidden by it, so their foot point often lands just outside a hall zone drawn along the counter's edge.
 function nowState({ camera, people, tableSince = new Map(), nowMs = Date.now() }) {
   const regions = cameraRegions(camera);
   let inHall = 0;
@@ -479,7 +484,8 @@ function nowState({ camera, people, tableSince = new Map(), nowMs = Date.now() }
   for (const [, x, y] of people) {
     const p = { x, y };
     if (regions.inPass(p)) outside += 1;
-    else if (regions.inHall?.(p)) inHall += 1;
+    else if (regions.inStaff?.(p)) elsewhere += 1;
+    else if (regions.inHall) inHall += 1;
     else elsewhere += 1;
   }
   const tables = regions.tables.map((table) => {
@@ -488,7 +494,7 @@ function nowState({ camera, people, tableSince = new Map(), nowMs = Date.now() }
     if (!occupied) tableSince.delete(table.id);
     return { id: table.id, occupied, sinceSec: occupied ? Math.round((nowMs - tableSince.get(table.id)) / 1000) : null };
   });
-  // `outside` = in the door opening / on the sidewalk; `elsewhere` = in frame but outside the hall zone (e.g. behind the counter).
+  // `outside` = in the door opening / on the sidewalk; `elsewhere` = in the staff zone (behind the counter).
   return { people: people.length, inHall: regions.inHall ? inHall : null, outside, elsewhere, tables };
 }
 

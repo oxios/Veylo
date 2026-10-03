@@ -30,7 +30,16 @@ const STITCH_DIST = 0.12;
 const SAME_SPOT_GAP_SEC = 180;
 const SAME_SPOT_DIST = 0.06;
 const STITCH_SIM = 0.5;
-const HIDDEN_SIM = 0.4; // below this a hidden guest is clearly someone else
+const HIDDEN_SIM = 0.4; // below this a hidden person is clearly someone else
+const PLACE_BONUS = 0.3; // staff reappear behind the counter, guests in the hall
+const GUEST_BEHIND_COUNTER_SIM = 0.6;
+const CONFLICT_DIST = 0.15; // one person cannot be on two tracks this far apart at the same time
+
+/** Two tracks of one person seen at the same moment in different places: the assignment of the newer one is wrong. */
+function concurrentConflict(track, other) {
+  const overlap = Math.min(track.endSec, other.endSec) - Math.max(track.startSec, other.startSec);
+  return overlap >= 1 && Math.hypot(track.x - other.x, track.y - other.y) > CONFLICT_DIST;
+}
 
 // ---- days ----
 
@@ -87,17 +96,22 @@ function newPersonKind(facts, { requireEntry }) {
 }
 
 /**
- * A track in the hall that did not come through the door belongs to someone who entered and is now out of sight
- * (behind the showcase, seated behind furniture). candidates: [{ personId, x, y, sim }] — guests whose visit is
- * open and who are not on any visible track; `sim` is the appearance similarity or null when unknown.
- * Clearly different appearance excludes a candidate; otherwise similar appearance and a near last position win.
+ * A track that did not come through the door belongs to someone already inside who is now out of sight (behind the
+ * showcase, seated behind furniture, walked behind the counter). candidates: [{ personId, role, x, y, sim }] — people
+ * whose visit is open and who are not on any visible track; `sim` is the appearance similarity or null when unknown.
+ * start: { x, y, behindCounter } — where the new track began.
+ * Clearly different appearance excludes a candidate; otherwise similar appearance, a near last position and the
+ * right place (staff behind the counter, guests in the hall) win.
  */
 function pickHidden(start, candidates) {
   let best = null;
   for (const candidate of candidates) {
     if (candidate.sim !== null && candidate.sim < HIDDEN_SIM) continue;
+    // Guests do not walk behind the counter: only a clearly matching appearance may put a guest there.
+    if (start.behindCounter && candidate.role !== "staff" && !(candidate.sim !== null && candidate.sim >= GUEST_BEHIND_COUNTER_SIM)) continue;
     const distance = Math.hypot(start.x - candidate.x, start.y - candidate.y);
-    const score = (candidate.sim ?? 0.55) - distance;
+    const place = start.behindCounter === undefined ? 0 : (candidate.role === "staff") === start.behindCounter ? PLACE_BONUS : -PLACE_BONUS;
+    const score = (candidate.sim ?? 0.55) - distance + place;
     if (!best || score > best.score) best = { ...candidate, distance, score };
   }
   return best;
@@ -122,6 +136,33 @@ function cosine(a, b) {
   return dot;
 }
 
+// ---- day gallery: the "model that learns people during the day" ----
+// Every person keeps up to GALLERY_SIZE appearance vectors from different tracks (seated, standing, back, front);
+// a new track is compared with the closest of them, not with one blurred average. Measured on the real camera: the
+// same girl after going out and back had 0.92 with one of her earlier tracks but < 0.8 with her averaged vector.
+// The gallery is erased together with the other vectors at the end of the day.
+const GALLERY_SIZE = 16;
+const GALLERY_NOVELTY = 0.95; // a vector this close to one already stored adds nothing new
+
+function addToGallery(gallery, feat) {
+  if (!feat?.length) return gallery || [];
+  const current = gallery || [];
+  if (current.some((item) => cosine(item, feat) >= GALLERY_NOVELTY)) return current;
+  const rounded = feat.map((value) => Math.round(value * 10_000) / 10_000);
+  return [...current, rounded].slice(-GALLERY_SIZE);
+}
+
+/** Best similarity of a track's vector to a person: the closest of their gallery vectors and their average. */
+function personSimilarity(feat, person) {
+  const vectors = [...(person.gallery || []), ...(person.vec?.length ? [person.vec] : [])];
+  let best = null;
+  for (const vector of vectors) {
+    const sim = cosine(feat, vector);
+    if (best === null || sim > best) best = sim;
+  }
+  return best;
+}
+
 // Running mean of two normalised vectors weighted by their sample counts.
 function mergeVectors(a, aN, b, bN) {
   if (!a?.length) return { vec: b, n: bN };
@@ -137,8 +178,9 @@ function mergeVectors(a, aN, b, bN) {
  */
 function chooseMatch(feat, candidates, { match = MATCH_SIM, uncertain = UNCERTAIN_SIM, margin = MATCH_MARGIN } = {}) {
   const scored = candidates
-    .filter((candidate) => !candidate.busy && candidate.vec?.length)
-    .map((candidate) => ({ ...candidate, sim: cosine(feat, candidate.vec) }))
+    .filter((candidate) => !candidate.busy)
+    .map((candidate) => ({ ...candidate, sim: personSimilarity(feat, candidate) }))
+    .filter((candidate) => candidate.sim !== null)
     .sort((a, b) => b.sim - a.sim);
   const [best, second] = scored;
   if (!best) return { decision: "none", personId: null, sim: 0 };
@@ -355,9 +397,12 @@ module.exports = {
   trackFacts,
   newPersonKind,
   pickHidden,
+  concurrentConflict,
   insideVenue,
   normalize,
   cosine,
+  addToGallery,
+  personSimilarity,
   mergeVectors,
   chooseMatch,
   stitchCandidate,
@@ -369,7 +414,7 @@ module.exports = {
   occupancySeries,
   expandPolygon,
   constants: {
-    GUEST_HALL_SEC, MATCH_IN_VENUE_SEC, STAFF_ZONE_SEC, VISIT_GAP_SEC, FEAT_MIN_SAMPLES, FEAT_WAIT_SEC, ABSENCE_MIN_SEC,
+    GALLERY_SIZE, GUEST_HALL_SEC, MATCH_IN_VENUE_SEC, STAFF_ZONE_SEC, VISIT_GAP_SEC, FEAT_MIN_SAMPLES, FEAT_WAIT_SEC, ABSENCE_MIN_SEC,
     MATCH_SIM, UNCERTAIN_SIM, MATCH_MARGIN, STITCH_GAP_SEC, STITCH_DIST, SAME_SPOT_GAP_SEC, SAME_SPOT_DIST, STITCH_SIM,
   },
 };

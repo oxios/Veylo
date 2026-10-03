@@ -60,7 +60,8 @@ async function openWhep(cameraId: string, onTrack: (stream: MediaStream) => void
 
 // ---- overlay drawing ----
 
-type Tracked = { box: number[]; target: number[]; seen: number; trail: { x: number; y: number; t: number }[]; label?: BoxLabel };
+type Tracked = { box: number[]; target: number[]; seen: number; trail: { x: number; y: number; t: number }[]; label?: BoxLabel; bicycle?: boolean };
+const SKY = "#5ab8ff";
 
 function boxText(label: BoxLabel | undefined) {
   if (!label) return "";
@@ -96,7 +97,7 @@ function useOverlay(canvasRef: React.RefObject<HTMLCanvasElement | null>, camera
 
   const push = (frame: LiveFrame) => {
     const now = performance.now();
-    for (const [id, x1, y1, x2, y2] of frame.people) {
+    for (const [id, x1, y1, x2, y2, , cls] of frame.people) {
       const item = tracked.current.get(id);
       const foot = { x: (x1 + x2) / 2, y: y2, t: now };
       const label = frame.labels?.[String(id)];
@@ -106,7 +107,7 @@ function useOverlay(canvasRef: React.RefObject<HTMLCanvasElement | null>, camera
         item.trail.push(foot);
         if (label) item.label = label;
       } else {
-        tracked.current.set(id, { box: [x1, y1, x2, y2], target: [x1, y1, x2, y2], seen: now, trail: [foot], label });
+        tracked.current.set(id, { box: [x1, y1, x2, y2], target: [x1, y1, x2, y2], seen: now, trail: [foot], label, bicycle: cls === 1 });
       }
     }
   };
@@ -157,7 +158,7 @@ function useOverlay(canvasRef: React.RefObject<HTMLCanvasElement | null>, camera
         const foot = { x: (x1 + x2) / 2, y: y2 };
         const outside = zoneRef.current && zoneRef.current.length >= 3 && pointInPolygon(foot, zoneRef.current);
         const staffColor = item.label?.role === "staff" && item.label.color ? STAFF_COLORS[item.label.color] : null;
-        const color = staffColor ?? (outside ? ORANGE : MINT);
+        const color = item.bicycle ? SKY : staffColor ?? (outside ? ORANGE : MINT);
         ctx.globalAlpha = Math.max(0, fade);
         if (showTrails && item.trail.length > 1) {
           ctx.lineWidth = 2;
@@ -187,7 +188,7 @@ function useOverlay(canvasRef: React.RefObject<HTMLCanvasElement | null>, camera
           ctx.fill();
           ctx.stroke();
           ctx.setLineDash([]);
-          const label = boxText(item.label);
+          const label = item.bicycle ? "велосипед" : boxText(item.label);
           if (label) {
             ctx.font = "700 12px Manrope, Arial, sans-serif";
             const labelWidth = ctx.measureText(label).width + 12;
@@ -466,7 +467,7 @@ export function LiveView({ camera }: { camera: Camera }) {
         <section className="live-counter hero">
           <span><Users />{camera.kind === "outdoor" ? "Зараз у кадрі" : "Зараз у залі"}</span>
           <strong>{now ? (camera.kind === "outdoor" ? now.people : (now.inHall ?? now.people) + (now.hidden ?? 0)) : "—"}</strong>
-          <small>{now ? (camera.kind === "outdoor" ? `з них на тротуарі: ${now.outside}` : camera.kind === "hybrid" ? `${now.hidden ? `з них ${now.hidden} не видно (за меблями) · ` : ""}ще ${now.outside} у дверях / на вулиці${now.elsewhere ? ` · ${now.elsewhere} поза зоною залу` : ""}` : `усього в кадрі: ${now.people}`) : "чекаємо перші дані"}</small>
+          <small>{now ? (camera.kind === "outdoor" ? `з них на тротуарі: ${now.outside}` : camera.kind === "hybrid" ? `${now.hidden ? `з них ${now.hidden} не видно (за меблями) · ` : ""}ще ${now.outside} у дверях / на вулиці${now.elsewhere ? ` · ${now.elsewhere} за стійкою` : ""}` : `усього в кадрі: ${now.people}`) : "чекаємо перші дані"}</small>
         </section>
         {camera.kind !== "indoor" && (
           <section className="live-counter">
