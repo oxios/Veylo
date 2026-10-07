@@ -6,8 +6,8 @@ import { ApiError, apiFetch, apiUrl } from "./api-client";
 import { CameraFrame, kindMeta, MarkupOverlay, StatusPill, statusExplanation, TableLabels } from "./camera-ui";
 import { paintHeat } from "./charts";
 import { formatDuration, formatPercent } from "./format";
-import { PersonDrawer, STAFF_COLORS, StaffAvatar, guestName, useNow } from "./people-ui";
-import type { BoxLabel, Camera, LiveFrame, LiveStats, NowState, Point, StaffMember } from "./types";
+import { PersonDrawer, STAFF_COLORS, StaffAvatar, guestName, roleOutcome, useNow } from "./people-ui";
+import type { BoxLabel, Camera, LiveFrame, LiveStats, NowState, Point, RoleResult, StaffMember } from "./types";
 
 type Layer = "boxes" | "trails" | "zones" | "heat";
 
@@ -256,11 +256,14 @@ function BoxPopover({ label, at, staff, onClose, onOpen }: {
 }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [outcome, setOutcome] = useState("");
   const assign = async (body: unknown) => {
     setBusy(true);
     try {
-      await apiFetch(`/persons/${label.p}/role`, { method: "POST", body: JSON.stringify(body) });
-      onClose();
+      const note = roleOutcome(await apiFetch<RoleResult>(`/persons/${label.p}/role`, { method: "POST", body: JSON.stringify(body) }));
+      if (!note) return onClose();
+      setOutcome(note); // keep the popover open so the owner sees who went back to the guests
+      setBusy(false);
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : "Не вдалося зберегти");
       setBusy(false);
@@ -283,6 +286,7 @@ function BoxPopover({ label, at, staff, onClose, onOpen }: {
       </div>
       {staff.length === 0 && <small>Додайте працівників у розділі «Персонал».</small>}
       {error && <small className="form-error" role="alert">{error}</small>}
+      {outcome && <small role="status">{outcome}</small>}
     </div>
   );
 }

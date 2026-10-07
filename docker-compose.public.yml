@@ -1,0 +1,8 @@
+# Optional overlay: exposes the web app on all interfaces for testing from other devices (phone, external IP).
+# Enable by appending it to COMPOSE_FILE in .env, e.g.
+#   COMPOSE_FILE=docker-compose.yml;docker-compose.gpu.yml;docker-compose.public.yml
+# and add the public origin (http://<ip>:<port>) to CORS_ORIGINS. The API itself stays internal behind the frontend proxy.
+services:
+  frontend:
+    ports:
+      - "${FRONTEND_PUBLIC_BIND:-0.0.0.0:25565}:5173"

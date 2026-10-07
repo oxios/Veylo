@@ -219,7 +219,11 @@ otherwise it is a new visit. Vectors are never returned to the browser and are e
   Never stored by the API.
 - `POST /api/persons/:personId/role` — exactly one of `{ role: "guest" }`, `{ staffId }`, `{ newStaff: { name,
   role?, color? } }`. Confirming a staff member makes the node's day vector recognise them for the rest of the day.
+  A staff member is one human per day: another person of the day already marked as the same staff member goes back
+  to the guests when the camera saw both at the same time in different places (≥ 2 s, > 0.15 apart), otherwise it is
+  merged into this person. → `{ person, merged: [{ id, no }], demoted: [{ id, no }] }`.
 - `POST /api/persons/:personId/merge` — `{ intoPersonId }` (same venue and day): visits and tracks move over.
+  `409 PEOPLE_SEEN_APART` when the camera saw both at the same time in different places.
 - `POST /api/visits/:visitId/detach` → the visit gets a new number ("these are different people").
 
 ### Processing

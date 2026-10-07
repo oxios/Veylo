@@ -112,6 +112,17 @@ test("one person on two simultaneous tracks far apart is a conflict", () => {
   assert.equal(pm.concurrentConflict({ startSec: 50, endSec: 80, x: 0.12, y: 0.5 }, girl), false, "same place = duplicate box, not a conflict");
 });
 
+test("two people seen at the same moments in different places are different humans", () => {
+  const counter = track(walk([[0.88, 0.97]], 10), 0, { cameraId: "c1" }); // staff behind the counter
+  const guest = track(walk([[0.89, 0.76]], 10), 3, { cameraId: "c1" }); // a guest pressed to her, 0.21 away
+  assert.ok(pm.seenApart([counter], [guest]));
+  assert.ok(pm.seenApart([guest], [counter]), "symmetric");
+  assert.equal(pm.seenApart([counter], [track(walk([[0.88, 0.97]], 10), 30, { cameraId: "c1" })]), false, "one after another = maybe the same person");
+  assert.equal(pm.seenApart([counter], [track(walk([[0.9, 0.95]], 10), 3, { cameraId: "c1" })]), false, "same spot = duplicate box");
+  assert.equal(pm.seenApart([counter], [track(walk([[0.89, 0.76]], 10), 3, { cameraId: "c2" })]), false, "other camera is not compared");
+  assert.equal(pm.seenApart([counter], [track(walk([[0.89, 0.76]], 1), 3, { cameraId: "c1" })]), false, "a 1 s glitch is not proof");
+});
+
 test("day gallery: a person is recognised by the closest of their stored views", () => {
   const seated = pm.normalize([1, 0, 0]);
   const standing = pm.normalize([0, 1, 0]);

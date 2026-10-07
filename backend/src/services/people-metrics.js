@@ -41,6 +41,30 @@ function concurrentConflict(track, other) {
   return overlap >= 1 && Math.hypot(track.x - other.x, track.y - other.y) > CONFLICT_DIST;
 }
 
+// Two people of the day seen by the same camera at the same moments in clearly different places are two different
+// humans (not one person the tracker split in two): they cannot be the same staff member and must not be merged.
+const APART_MIN_SEC = 2; // a short glitch (duplicate box, identity swap) is not proof
+
+function seenApart(tracksA, tracksB) {
+  const prepare = (tracks) => tracks
+    .map((track) => ({ cameraId: String(track.cameraId), points: absolutePoints(track) }))
+    .filter((track) => track.points.length);
+  const others = prepare(tracksB);
+  const moments = new Set();
+  for (const a of prepare(tracksA)) {
+    for (const b of others) {
+      if (a.cameraId !== b.cameraId || a.points.at(-1)[0] < b.points[0][0] || b.points.at(-1)[0] < a.points[0][0]) continue;
+      let j = 0;
+      for (const [t, x, y] of a.points) {
+        while (j + 1 < b.points.length && Math.abs(b.points[j + 1][0] - t) <= Math.abs(b.points[j][0] - t)) j += 1;
+        const [bt, bx, by] = b.points[j];
+        if (Math.abs(bt - t) <= 0.25 && Math.hypot(x - bx, y - by) > CONFLICT_DIST) moments.add(Math.floor(t * 2));
+      }
+    }
+  }
+  return moments.size >= APART_MIN_SEC * 2; // points come at 2 Hz
+}
+
 // ---- days ----
 
 function localDay(ms, timeZone) {
@@ -401,6 +425,7 @@ module.exports = {
   newPersonKind,
   pickHidden,
   concurrentConflict,
+  seenApart,
   insideVenue,
   normalize,
   cosine,

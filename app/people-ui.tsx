@@ -6,7 +6,7 @@ import { apiFetch, apiUrl } from "./api-client";
 import { browserPlaysHevc } from "./archive-view";
 import { CameraFrame, polygonPoints } from "./camera-ui";
 import { formatDuration, formatTime } from "./format";
-import type { Camera, Clip, Person, StaffColor, StaffMember, StaffRole, Visit } from "./types";
+import type { Camera, Clip, Person, RoleResult, StaffColor, StaffMember, StaffRole, Visit } from "./types";
 
 // ---- vocabulary ----
 
@@ -30,6 +30,15 @@ export const STAFF_ROLES: Record<StaffRole, string> = {
 };
 
 export const guestName = (no: number | null | undefined) => (no ? `Гість №${no}` : "Гість");
+
+/** What else changed when a staff member was confirmed (one staff member = one human per day); "" when nothing. */
+export function roleOutcome(result: RoleResult | null | undefined) {
+  const names = (items: { no: number }[]) => items.map((item) => guestName(item.no)).join(", ");
+  const parts = [];
+  if (result?.demoted?.length) parts.push(`${names(result.demoted)} повернуто в гості: камера бачила їх одночасно з цією людиною, тож це хтось інший.`);
+  if (result?.merged?.length) parts.push(`${names(result.merged)} — та сама людина, записи об’єднано.`);
+  return parts.join(" ");
+}
 
 export function initials(name: string) {
   return name.split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]?.toUpperCase()).join("") || "?";
@@ -282,6 +291,7 @@ export function PersonDrawer({ personId, cameras, staff, dayPersons, onClose, on
   const [busy, setBusy] = useState(false);
   const [mergeInto, setMergeInto] = useState("");
   const [newStaff, setNewStaff] = useState("");
+  const [outcome, setOutcome] = useState("");
 
   const load = useCallback(() => {
     apiFetch<{ person: PersonDetail }>(`/persons/${personId}`)
@@ -305,8 +315,10 @@ export function PersonDrawer({ personId, cameras, staff, dayPersons, onClose, on
   const act = async (path: string, body: unknown) => {
     setBusy(true);
     setError("");
+    setOutcome("");
     try {
-      const result = await apiFetch<{ person: Person }>(path, { method: "POST", body: JSON.stringify(body) });
+      const result = await apiFetch<RoleResult>(path, { method: "POST", body: JSON.stringify(body) });
+      setOutcome(roleOutcome(result));
       onChanged();
       if (result.person.id !== personId) onClose();
       else load();
@@ -405,6 +417,7 @@ export function PersonDrawer({ personId, cameras, staff, dayPersons, onClose, on
               </section>
             )}
             {error && <div className="notice notice-error" role="alert">{error}</div>}
+            {outcome && <div className="notice notice-warning" role="status">{outcome}</div>}
             <p className="footnote">Номер діє в межах дня. Обличчя не зберігаються: гостя впізнаємо за одягом і силуетом, вектор видаляється після закриття дня. Кадр людини живе на вузлі не довше за архів (24 год).</p>
           </>
         )}

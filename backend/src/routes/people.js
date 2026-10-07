@@ -384,8 +384,13 @@ persons.post("/:personId/role", validate(schemas.personRole), asyncHandler(async
     if (String(member.venueId) !== String(person.venueId)) throw new ApiError(404, "Staff not found", "STAFF_NOT_FOUND");
     staffId = member._id;
   }
-  await people.assignRole(person, { role: staffId ? "staff" : "guest", staffId });
-  res.json({ person: personView(person.toObject()) });
+  const result = await people.assignRole(person, { role: staffId ? "staff" : "guest", staffId });
+  const brief = (item) => ({ id: String(item._id), no: item.no });
+  res.json({
+    person: personView(result.person.toObject()),
+    merged: result.merged.map(brief),
+    demoted: result.demoted.map(brief),
+  });
 }));
 
 persons.post("/:personId/merge", validate(schemas.personMerge), asyncHandler(async (req, res) => {
@@ -393,6 +398,10 @@ persons.post("/:personId/merge", validate(schemas.personMerge), asyncHandler(asy
   const target = await ownedById(Person, req.validated.body.intoPersonId, req.user._id, "Person");
   if (String(source._id) === String(target._id) || String(source.venueId) !== String(target.venueId) || source.day !== target.day) {
     throw new ApiError(422, "Only two different people of the same day can be merged", "INVALID_MERGE");
+  }
+  if (await people.seenApart(source, target)) {
+    // Shown as is in the UI.
+    throw new ApiError(409, "Це різні люди: камера бачила їх одночасно в різних місцях", "PEOPLE_SEEN_APART");
   }
   const merged = await people.mergePeople(source, target);
   res.json({ person: personView(merged.toObject()) });

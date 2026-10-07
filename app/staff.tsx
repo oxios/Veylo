@@ -5,8 +5,8 @@ import { Archive, ArrowRight, Clock3, Coffee, Info, LogOut, Pencil, Plus, Timer,
 import { apiFetch } from "./api-client";
 import { BarChart } from "./charts";
 import { formatDuration, formatTime } from "./format";
-import { DayPicker, DayTimeline, PersonAvatar, PersonDrawer, STAFF_COLORS, STAFF_ROLES, StaffAvatar, guestName, timelineRange, useNow, type TimelineRow } from "./people-ui";
-import type { PageContext, Person, StaffColor, StaffDay, StaffMember, StaffRole, StaffShift } from "./types";
+import { DayPicker, DayTimeline, PersonAvatar, PersonDrawer, STAFF_COLORS, STAFF_ROLES, StaffAvatar, guestName, roleOutcome, timelineRange, useNow, type TimelineRow } from "./people-ui";
+import type { PageContext, Person, RoleResult, StaffColor, StaffDay, StaffMember, StaffRole, StaffShift } from "./types";
 
 const PLACE: Record<StaffShift["state"], string> = {
   counter: "за стійкою",
@@ -89,7 +89,7 @@ function StaffModal({ venueId, member, onClose, onSaved }: { venueId: string; me
 
 // ---- confirmation queue ----
 
-function ReviewCard({ person, staff, onDone, onOpen }: { person: Person; staff: StaffMember[]; onDone: () => void; onOpen: () => void }) {
+function ReviewCard({ person, staff, onDone, onOpen }: { person: Person; staff: StaffMember[]; onDone: (note: string) => void; onOpen: () => void }) {
   const [busy, setBusy] = useState(false);
   const [name, setName] = useState("");
   const [error, setError] = useState("");
@@ -98,8 +98,7 @@ function ReviewCard({ person, staff, onDone, onOpen }: { person: Person; staff: 
     setBusy(true);
     setError("");
     try {
-      await apiFetch(`/persons/${person.id}/role`, { method: "POST", body: JSON.stringify(body) });
-      onDone();
+      onDone(roleOutcome(await apiFetch<RoleResult>(`/persons/${person.id}/role`, { method: "POST", body: JSON.stringify(body) })));
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : "Не вдалося зберегти");
       setBusy(false);
@@ -209,6 +208,7 @@ export function StaffPage({ venue, cameras, go }: PageContext) {
   const [openStaff, setOpenStaff] = useState<string | null>(null);
   const [openPerson, setOpenPerson] = useState<string | null>(null);
   const [whole, setWhole] = useState(false);
+  const [roleNote, setRoleNote] = useState("");
   const now = useNow(15_000);
 
   const load = useCallback(() => {
@@ -230,6 +230,11 @@ export function StaffPage({ venue, cameras, go }: PageContext) {
     load();
   }, [load]);
 
+  const roleDone = useCallback((note: string) => {
+    setRoleNote(note);
+    load();
+  }, [load]);
+
   useEffect(() => {
     if (!data?.live) return;
     const timer = window.setInterval(load, 10_000);
@@ -246,11 +251,11 @@ export function StaffPage({ venue, cameras, go }: PageContext) {
       const index = Number(event.key) - 1;
       const body = event.key.toLowerCase() === "g" ? { role: "guest" } : index >= 0 && index < Math.min(9, activeStaff.length) ? { staffId: activeStaff[index].id } : null;
       if (!body) return;
-      void apiFetch(`/persons/${firstReview.id}/role`, { method: "POST", body: JSON.stringify(body) }).then(load, () => undefined);
+      void apiFetch<RoleResult>(`/persons/${firstReview.id}/role`, { method: "POST", body: JSON.stringify(body) }).then((result) => roleDone(roleOutcome(result)), () => undefined);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [firstReview, activeStaff, modal, openStaff, openPerson, load]);
+  }, [firstReview, activeStaff, modal, openStaff, openPerson, roleDone]);
 
   if (!venue) return <section className="card panel empty"><h2>Спочатку створіть заклад</h2></section>;
   if (!data) return error ? <div className="notice notice-error" role="alert">{error}</div> : <section className="card panel"><p className="muted">Завантажуємо персонал…</p></section>;
@@ -293,6 +298,9 @@ export function StaffPage({ venue, cameras, go }: PageContext) {
         <button type="button" className="primary" onClick={() => setModal("new")}><Plus />Додати працівника</button>
       </div>
       {error && <div className="notice notice-error" role="alert">{error}</div>}
+      {roleNote && (
+        <div className="notice notice-warning" role="status"><Info /><span>{roleNote}</span><button type="button" className="secondary" onClick={() => setRoleNote("")}>Зрозуміло</button></div>
+      )}
       {!data.zones.staff && guestCameras.length > 0 && (
         <div className="notice notice-warning"><Info /><span>Позначте зону персоналу (за стійкою): так система сама помітить, хто працює, і порахує час за стійкою.</span><button type="button" className="secondary" onClick={() => go("cameras")}>Розмітити</button></div>
       )}
@@ -308,7 +316,7 @@ export function StaffPage({ venue, cameras, go }: PageContext) {
           </div>
           {activeStaff.length === 0 && <p className="muted">Додайте працівників або впишіть ім’я нового прямо в картці.</p>}
           <div className="review-list">
-            {data.reviews.map((person) => <ReviewCard key={person.id} person={person} staff={directory} onDone={load} onOpen={() => setOpenPerson(person.id)} />)}
+            {data.reviews.map((person) => <ReviewCard key={person.id} person={person} staff={directory} onDone={roleDone} onOpen={() => setOpenPerson(person.id)} />)}
           </div>
         </section>
       )}

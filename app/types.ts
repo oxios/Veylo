@@ -159,6 +159,13 @@ export type StaffMember = { id: string; venueId: string; name: string; role: Sta
 
 export type PersonReview = { kind: "staff_candidate" | "staff_uncertain"; suggestedStaffId: string | null };
 
+/** Answer of POST /persons/:id/role: other people of the day that were marked as the same staff member. */
+export type RoleResult = {
+  person: Person;
+  merged: { id: string; no: number }[];
+  demoted: { id: string; no: number }[];
+};
+
 export type Person = {
   id: string;
   no: number;

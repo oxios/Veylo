@@ -455,15 +455,42 @@ async function expireVectors(nowMs = Date.now()) {
 
 // ---- owner corrections ----
 
-/** Marks a person as a staff member (or back to a guest); their visits follow. */
+/** Were these two people on the same camera at the same time in different places (→ two different humans)? */
+async function seenApart(a, b) {
+  const load = (personId) => LiveTrack.find({ personId }).select("cameraId startAt points").lean();
+  const [tracksA, tracksB] = await Promise.all([load(a._id), load(b._id)]);
+  return pm.seenApart(tracksA, tracksB);
+}
+
+/** Marks a person as a staff member (or back to a guest); their visits follow. A staff member is one human per day:
+ *  another person of the day already marked as the same staff member goes back to the guests when both were in the
+ *  frame at once (that earlier mark was wrong), otherwise it is the same human split in two and is merged in. */
 async function assignRole(person, { staffId = null, role }) {
+  const merged = [];
+  const demoted = [];
+  if (role === "staff" && staffId) {
+    const namesakes = await Person.find({ _id: { $ne: person._id }, venueId: person.venueId, day: person.day, role: "staff", staffId });
+    for (const other of namesakes) {
+      if (await seenApart(person, other)) {
+        other.set({ role: "guest", staffId: null, review: null, reviewDismissed: false });
+        await other.save();
+        await refreshPersonTotals(other._id); // still long behind the counter → back in the "who is this?" queue
+        rememberPerson(await Person.findById(other._id).lean());
+        demoted.push(other);
+      } else {
+        merged.push(other);
+      }
+    }
+  }
   person.role = role;
   person.staffId = role === "staff" ? staffId : null;
   person.review = null;
   if (role === "guest") person.reviewDismissed = true;
   await person.save();
-  rememberPerson(person);
-  return person;
+  let result = person;
+  for (const other of merged) result = await mergePeople(other, result);
+  rememberPerson(result);
+  return { person: result, merged, demoted };
 }
 
 /** Moves everything of `source` into `target` (the tracker or ReID split one person into two numbers). */
@@ -532,6 +559,7 @@ module.exports = {
   expireVectors,
   labelFrame,
   assignRole,
+  seenApart,
   mergePeople,
   detachVisit,
   staffDirectory,
